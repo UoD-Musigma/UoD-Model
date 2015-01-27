@@ -1,0 +1,1463 @@
+--Skeletons for the tables used in the UoD model
+
+----TRANSFORMATION OF INVENTORY MODEL DATA
+
+
+--creating table for holding inventory model parameters--
+CREATE TABLE ti_model
+(
+  product_id FLOAT(53) ,
+  location_id NVARCHAR2(20) ,
+  model_id NVARCHAR2(20) ,
+  ON_RANGE_DT DATE ,
+  OFF_RANGE_DT DATE ,
+  model NVARCHAR2(20) ,
+  day_full FLOAT(53) ,
+  day_part FLOAT(53) ,
+  mult FLOAT(53) 
+);
+CREATE INDEX upc
+   ON ti_model ( product_id);
+
+----TRANSFORMATION OF NETWORK SCHEDULE DATA
+
+--creating table to hold extracted lead time and upt from Network schedule raw file
+DROP TABLE network_schedule_updated;
+CREATE TABLE network_schedule_updated
+(
+  PRODUCT_ID NUMBER(10,0) ,
+  SOURCE_ID NVARCHAR2(20) ,
+  SINK_ID NVARCHAR2(20) ,
+  DELIVERY_SHIFT NUMBER(10,0) ,
+  EFFECTIVE_BEGIN_DT DATE ,
+  SHIFT_ADJ NUMBER(10,0) ,
+  SUN_RCPT NVARCHAR2(20) ,
+  MON_RCPT NVARCHAR2(20) ,
+  TUE_RCPT NVARCHAR2(20) ,
+  WED_RCPT NVARCHAR2(20) ,
+  THU_RCPT NVARCHAR2(20) ,
+  FRI_RCPT NVARCHAR2(20) ,
+  SAT_RCPT NVARCHAR2(20) ,
+  sun_order_lead_time NUMBER(10,0) ,
+  sun_upt NUMBER(10,0) ,
+  mon_order_lead_time NUMBER(10,0) ,
+  mon_upt NUMBER(10,0) ,
+  tue_order_lead_time NUMBER(10,0) ,
+  tue_upt NUMBER(10,0) ,
+  wed_order_lead_time NUMBER(10,0) ,
+  wed_upt NUMBER(10,0) ,
+  thu_order_lead_time NUMBER(10,0) ,
+  thu_upt NUMBER(10,0) ,
+  fri_order_lead_time NUMBER(10,0) ,
+  fri_upt NUMBER(10,0) ,
+  sat_order_lead_time NUMBER(10,0) ,
+  sat_upt NUMBER(10,0) 
+);
+
+
+
+--creating temporary table to store cleaned upt across days of week and order lead time--
+CREATE TABLE network_sched_1
+(
+  product_id FLOAT(53) ,
+  sink_id VARCHAR2(50) ,
+  effective_begin_dt DATE ,
+  sun NUMBER(10,0) ,
+  sun_upt NUMBER(10,0) ,
+  mon NUMBER(10,0) ,
+  mon_upt NUMBER(10,0) ,
+  tue NUMBER(10,0) ,
+  tue_upt NUMBER(10,0) ,
+  wed NUMBER(10,0) ,
+  wed_upt NUMBER(10,0) ,
+  thu NUMBER(10,0) ,
+  thu_upt NUMBER(10,0) ,
+  fri NUMBER(10,0) ,
+  fri_upt NUMBER(10,0) ,
+  sat NUMBER(10,0) ,
+  sat_upt NUMBER(10,0) 
+);
+CREATE INDEX product_id
+   ON network_sched_1 ( product_id);
+
+
+
+   --creating 2nd temporary table for storing upt values and flags for delivery across days of week ranked bades on effective date--
+CREATE TABLE network_sched_2
+(
+  product_id FLOAT(53) ,
+  sink_id VARCHAR2(50) ,
+  effective_begin_dt DATE ,
+  sun NUMBER(10,0) ,
+  sun_upt NUMBER(10,0) ,
+  mon NUMBER(10,0) ,
+  mon_upt NUMBER(10,0) ,
+  tue NUMBER(10,0) ,
+  tue_upt NUMBER(10,0) ,
+  wed NUMBER(10,0) ,
+  wed_upt NUMBER(10,0) ,
+  thu NUMBER(10,0) ,
+  thu_upt NUMBER(10,0) ,
+  fri NUMBER(10,0) ,
+  fri_upt NUMBER(10,0) ,
+  sat NUMBER(10,0) ,
+  sat_upt NUMBER(10,0) ,
+  rank_date FLOAT(53) 
+);
+CREATE INDEX product_id
+   ON network_sched_2 ( product_id);
+   
+
+
+   --creating 3rd temporary network schedule table to calculate effective begin and end date for each schedule--
+CREATE TABLE network_sched_3
+(
+  product_id FLOAT(53) ,
+  sink_id VARCHAR2(50) ,
+  effective_begin_dt DATE ,
+  sun NUMBER(10,0) ,
+  sun_upt NUMBER(10,0) ,
+  mon NUMBER(10,0) ,
+  mon_upt NUMBER(10,0) ,
+  tue NUMBER(10,0) ,
+  tue_upt NUMBER(10,0) ,
+  wed NUMBER(10,0) ,
+  wed_upt NUMBER(10,0) ,
+  thu NUMBER(10,0) ,
+  thu_upt NUMBER(10,0) ,
+  fri NUMBER(10,0) ,
+  fri_upt NUMBER(10,0) ,
+  sat NUMBER(10,0) ,
+  sat_upt NUMBER(10,0) ,
+  rank_date FLOAT(53) ,
+  end_date DATE 
+);
+CREATE INDEX product_id
+   ON network_sched_3 ( product_id);
+
+
+   --creating final network schedule table with flags for delivery across days of week and upt with effective begin and end date--
+CREATE TABLE network_sched_final
+(
+  product_id FLOAT(53) ,
+  sink_id VARCHAR2(500) ,
+  EFFECTIVE_BEGIN_DT DATE ,
+  rcpt NUMBER(10,0) ,
+  upt NUMBER(10,0) ,
+  end_date DATE ,
+  day_num NUMBER(10,0) 
+);
+CREATE INDEX product_id
+   ON network_sched_final ( product_id);
+
+----TRANSFORMATION OF DAY OF WEEK PROFILE DATA
+
+--creating table to store day of week profiles at upc-stg level from raw table--
+CREATE TABLE dow1
+(
+  upc FLOAT(53) ,
+  stg NVARCHAR2(50) ,
+  dow NUMBER(10,0) ,
+  profile FLOAT(53) 
+);
+CREATE INDEX upc
+   ON dow1 ( upc);
+
+----TRANSFORMATION OF LIFE DATA
+
+--creating table to store life of product at upc-store-day of week level
+CREATE TABLE productlife1
+(
+  upc NUMBER(10,0) ,
+  storecode NUMBER(10,0) ,
+  fday NUMBER(10,0) ,
+  life FLOAT(53) 
+);
+CREATE INDEX upc
+   ON productlife1 ( UPC);
+
+-------TRANSFORMATION OF STORE SCHEDULE DATA
+
+
+--create teable to store raw store schedule table with extracting location id in required format--
+CREATE TABLE location_sched_1
+(
+  storecode NUMBER(10,0) ,
+  begin_date DATE ,
+  sun VARCHAR2(5) ,
+  mon VARCHAR2(5) ,
+  tue VARCHAR2(5) ,
+  wed VARCHAR2(5) ,
+  thu VARCHAR2(5) ,
+  fri VARCHAR2(5) ,
+  sat VARCHAR2(5) 
+);
+CREATE INDEX storecode
+   ON location_sched_1 ( storecode);
+
+--creating temporary table to rank store schedule based on begin date--
+CREATE TABLE location_sched_2
+(
+  storecode NUMBER(10,0) ,
+  begin_date DATE ,
+  sun VARCHAR2(5) ,
+  mon VARCHAR2(5) ,
+  tue VARCHAR2(5) ,
+  wed VARCHAR2(5) ,
+  thu VARCHAR2(5) ,
+  fri VARCHAR2(5) ,
+  sat VARCHAR2(5) ,
+  date_rank NUMBER(10,0) 
+);
+CREATE INDEX storecode
+   ON location_sched_2 ( storecode);
+
+--creating temporary store schedule table to find end date for schedule--
+CREATE TABLE location_sched_3
+(
+  storecode NUMBER(10,0) ,
+  begin_date DATE ,
+  sun VARCHAR2(5) ,
+  mon VARCHAR2(5) ,
+  tue VARCHAR2(5) ,
+  wed VARCHAR2(5) ,
+  thu VARCHAR2(5) ,
+  fri VARCHAR2(5) ,
+  sat VARCHAR2(5) ,
+  date_rank NUMBER(10,0) ,
+  end_date DATE 
+);
+CREATE INDEX storecode
+   ON location_sched_3 ( storecode);
+
+
+--creating final table to store store-schedule at upc-store-day(begin and end date) level with rank--
+CREATE TABLE STORE_SCHEDULE_FINAL_1
+(
+  storecode FLOAT(53) ,
+  begin_date DATE ,
+  day_schedule VARCHAR2(5) ,
+  day_num NUMBER(10,0) ,
+  rank_day NUMBER(10,0) ,
+  end_date DATE 
+);
+CREATE INDEX storecode
+   ON STORE_SCHEDULE_FINAL_1 ( storecode);
+
+
+
+
+
+
+--TABLES REQUIRED FOR PERMISSIBLE UPT CALCULATIONS
+--THIS TABLE WILL CONTAIN PRODUCT DIMENTIONS AND SRP DETAILS
+CREATE TABLE Prod_dim_all
+(
+  UPC NUMBER(10,0) ,
+  category NVARCHAR2(50) ,
+  prod_description NVARCHAR2(100) ,
+  width FLOAT(53) ,
+  height FLOAT(53) ,
+  depth FLOAT(53) ,
+  srp_width FLOAT(53) ,
+  srp_height FLOAT(53) ,
+  srp_depth FLOAT(53) ,
+  unit_weight NUMBER(10,0) ,
+  unit_cost FLOAT(53) ,
+  is_srp NVARCHAR2(20) ,
+  srp_total NUMBER(10,0) 
+);
+CREATE INDEX upc
+   ON prod_dim_all ( upc);
+   
+--THIS TABLE WILL HOLD TRAY DIMENSIONS FOR EXISTING TRAYS
+CREATE TABLE dim_tray
+(
+  TRAY_TYPE VARCHAR2(100) ,
+  TRAY_WIDTH FLOAT(53) ,
+  TRAY_DEPTH FLOAT(53) ,
+  TRAY_HEIGHT FLOAT(53) ,
+  MAX_WEIGHT FLOAT(53) ,
+  MAX_COST FLOAT(53) 
+);
+CREATE INDEX TYPE
+   ON DIM_TRAY ( TRAY_TYPE);
+
+--TABLE FOR CALCULATION OF MAXIMUM UPT IN ALL POSSIBLE ORIENTATION    
+   CREATE TABLE dim_UPT
+(
+  UPC NUMBER(10,0) ,
+  PROD_DESCRIPTION VARCHAR2(50) ,
+  category VARCHAR2(20) ,
+  WIDTH FLOAT(53) ,
+  HEIGHT FLOAT(53) ,
+  DEPTH FLOAT(53) ,
+  SRP_WIDTH FLOAT(53) ,
+  SRP_HEIGHT FLOAT(53) ,
+  SRP_DEPTH FLOAT(53) ,
+  srp_total NUMBER(10,0) ,
+  TRAY_TYPE VARCHAR2(100) ,
+  TRAY_WIDTH FLOAT(53) ,
+  TRAY_HEIGHT FLOAT(53) ,
+  TRAY_DEPTH FLOAT(53) ,
+  MAX_WEIGHT FLOAT(53) ,
+  MAX_COST FLOAT(53) ,
+  Is_srp VARCHAR2(5) ,
+  upt1 NUMBER(10,0) ,
+  upt6 NUMBER(10,0) ,
+  REDWID FLOAT(53) ,
+  REDDEP FLOAT(53) ,
+  REDHGT FLOAT(53) ,
+  UPT_INITIAL NUMBER(10,0) ,
+  UPT_WIDTH NUMBER(10,0) ,
+  UPT_DEPTH NUMBER(10,0) ,
+  UPT_HEIGHT NUMBER(10,0) ,
+  UPT_MAX NUMBER(10,0) 
+);
+CREATE INDEX UPC
+   ON /*DBO.*/DIM_UPT ( UPC);
+ --TRANSFORMED FORM OF TABLE HOLDING MAXIMUM PERMISSIBLE UPT FOR EACH UPC
+CREATE TABLE dim_upt_pivot
+(
+  UPC NUMBER(10,0) ,
+  PROD_DESCRIPTION VARCHAR2(50) ,
+  category VARCHAR2(20) ,
+  is_srp VARCHAR2(5) ,
+  srp_total NUMBER(10,0) ,
+  Half_2IN_MAX_UPT NUMBER(10,0) ,
+  Half_5IN_MAX_UPT NUMBER(10,0) ,
+  Half_7IN_MAX_UPT NUMBER(10,0) ,
+  Metric_2IN_MAX_UPT NUMBER(10,0) ,
+  Metric_5IN_MAX_UPT NUMBER(10,0) ,
+  Metric_7IN_MAX_UPT NUMBER(10,0) ,
+  Cardboard NUMBER(10,0) ,
+  Brown_tray NUMBER(10,0) ,
+  current_upt NUMBER(10,0) ,
+  current_tray NVARCHAR2(20) ,
+  MAX_UPT_FEASIBLE FLOAT(53) 
+);
+CREATE INDEX UPC
+   ON DIM_UPT_pivot ( UPC);
+   
+   --TABLE TO HOLD MAXIMUM CURRENT UPT SEEN ACROSS DEPOTS
+   CREATE TABLE current_upt
+(
+  UPC NUMBER(10,0) ,
+  upt NUMBER(10,0) 
+);
+CREATE INDEX upc
+   ON current_upt ( upc);
+   
+   --TABLES TO HOLD LIST OF UPCS
+   
+DROP TABLE list_upc;
+CREATE TABLE list_upc
+(
+  UPC NUMBER(10,0) 
+);
+CREATE INDEX upc
+   ON list_upc ( upc);
+INSERT INTO list_upc
+  ( SELECT DISTINCT upc 
+    FROM dim_upt_pivot  );
+DROP TABLE list_upc_1;
+CREATE TABLE list_upc_1
+(
+  UPC FLOAT(53) 
+);
+CREATE INDEX upc
+   ON list_upc_1 ( upc);
+INSERT INTO list_upc_1
+  ( SELECT DISTINCT upc 
+    FROM list_upc  );
+DROP TABLE list_upc_2;
+CREATE TABLE list_upc_2
+(
+  UPC FLOAT(53) 
+);
+CREATE INDEX upc
+   ON list_upc_2 ( upc);
+INSERT INTO list_upc_2
+  ( SELECT DISTINCT upc 
+    FROM list_upc  );
+DROP TABLE upt_list2;
+
+--TABLE TO HOLD ALL POSSIBLE UPT/SRP UNITS- TRAY TYPE FOR A UPC
+CREATE TABLE upt_list2
+(
+  UPC FLOAT(53) ,
+  UPT NUMBER(10,0) ,
+  tray_type VARCHAR2(20) 
+);
+CREATE INDEX UPC
+   ON upt_list2 ( upc);
+   
+   
+ --TABLE HOLDING VARIOUS UPT ACROSS DEPOTS  
+CREATE TABLE network_sched_final_depot
+(
+  product_id FLOAT(53) ,
+  sink_id VARCHAR2(500) ,
+  EFFECTIVE_BEGIN_DT DATE ,
+  rcpt NUMBER(10,0) ,
+  upt NUMBER(10,0) ,
+  end_date DATE ,
+  day_num NUMBER(10,0) ,
+  rank_date NUMBER(10,0) 
+);
+ CREATE INDEX product_id
+   ON network_sched_final_depot ( product_id);
+   
+--TABLE TO HOLD COUNT OF REPEATITION OF UPT ACROSS DEPOTS
+
+CREATE TABLE upt_upc_d
+(
+  upc NUMBER(10,0) ,
+  depot VARCHAR2(20) ,
+  upt NUMBER(10,0) ,
+  count_upt NUMBER(10,0) 
+);
+CREATE INDEX upc
+   ON upt_upc_d ( upc);
+   
+-- TABLE HOLDING THE RANK FOR EACH UPT IN A DEPOT
+DROP TABLE upt_upc_de;
+CREATE TABLE upt_upc_de
+(
+  upc NUMBER(10,0) ,
+  depot VARCHAR2(20) ,
+  upt NUMBER(10,0) ,
+  count_upt NUMBER(10,0) ,
+  rank_upt NUMBER(10,0) 
+);
+CREATE INDEX upc
+   ON upt_upc_de ( upc);
+   
+   --TABLE HOLDING THE MOST REPEATING UPT IN A DEPOT 
+CREATE TABLE upt_upc_depot
+(
+  upc NUMBER(10,0) ,
+  depot VARCHAR2(20) ,
+  upt NUMBER(10,0) 
+);
+CREATE INDEX upc
+   ON upt_upc_depot ( upc);
+   
+--TABLE TO HOLD ALL POSSIBLE UPT- TRAY TYPE FOR A UPC   
+   CREATE TABLE upt_list
+(
+  upc NUMBER(10,0) ,
+  upt NUMBER(10,0) ,
+  tray_type NVARCHAR2(20) ,
+  srp NUMBER(10,0) 
+);
+CREATE INDEX upc
+
+--TABLE HOLDING ALL POSSIBLE UPTS FOR A UPC
+CREATE TABLE upt_upc
+(
+  upc NUMBER(10,0) ,
+  upt NUMBER(10,0) 
+);
+CREATE INDEX upc
+   ON upt_upc ( upc);
+   
+--TABLE HOLDING SUPPLIER FOR EACH UPC
+DROP TABLE upc_vendor;
+CREATE TABLE upc_vendor
+(
+  upc NUMBER(10,0) ,
+  source_id NVARCHAR2(20) 
+);
+CREATE INDEX upc
+   ON upc_vendor ( upc);   
+   ON upt_list ( upc);
+   
+-- TABLE CONTAINING MATCHING VENDOR-UPT COMBINATION FROM CP DATA AND UPC-VENDOR-UPT MAPPING
+CREATE TABLE cost_new
+(
+  UPC NUMBER(10,0) ,
+  cost_Vendor NVARCHAR2(20) ,
+  start_ DATE ,
+  CP FLOAT(53) ,
+  current_UPT NUMBER(10,0) ,
+  cost_upt NUMBER(10,0) ,
+  ns_vendor NVARCHAR2(20) 
+);
+CREATE INDEX upc
+   ON cost_new ( UPC);
+   
+ --TABLE HOLDING RANKS FOR CP CORRESPONDING TO MATCHING VENDOR-UPT ACROSS ENTIRE TIME PERIOD
+ CREATE TABLE cost_new_1
+(
+  UPC NUMBER(10,0) ,
+  cost_Vendor NVARCHAR2(20) ,
+  start_ DATE ,
+  CP FLOAT(53) ,
+  current_UPT NUMBER(10,0) ,
+  cost_upt NUMBER(10,0) ,
+  ns_vendor NVARCHAR2(20) ,
+  date_rank NUMBER(10,0) 
+);
+CREATE INDEX upc
+   ON cost_new_1 ( UPC);
+   
+--TABLE HOLDING RANK BASED ON CP FOR A UPC
+DROP TABLE cost_new_2;
+CREATE TABLE cost_new_2
+(
+  UPC NUMBER(10,0) ,
+  cost_Vendor NVARCHAR2(20) ,
+  start_ DATE ,
+  CP FLOAT(53) ,
+  current_UPT NUMBER(10,0) ,
+  cost_upt NUMBER(10,0) ,
+  ns_vendor NVARCHAR2(20) ,
+  date_rank NUMBER(10,0) ,
+  cp_rank NUMBER(10,0) 
+);
+CREATE INDEX upc
+   ON cost_new_2 ( UPC);
+   
+--TABLE HOLDING CURRENT TRAY TYPES
+CREATE TABLE current_tray
+(
+  upc NUMBER(10,0) ,
+  equipment_id NUMBER(10,0) ,
+  equipment_type VARCHAR2(50) ,
+  Vendor_number VARCHAR2(20) ,
+  category_code VARCHAR2(20) ,
+  vendor NUMBER(10,0) 
+);
+CREATE INDEX upc
+   ON current_tray ( upc);
+   
+--TABLE CONTAINING RANKS FOR MULTIPLE TAYS FOR A UPC FOR WHICH VENDORS MATCH
+CREATE TABLE current_1
+(
+  upc NUMBER(10,0) ,
+  tray NUMBER(10,0) ,
+  rank_tray NUMBER(10,0) ,
+  current_tray NVARCHAR2(20) 
+);
+CREATE INDEX upc
+   ON current_1 ( upc);
+DROP TABLE current_1;
+
+--TABLE CONTAINING RANKS FOR MULTIPLE TAYS FOR A UPC FOR WHICH VENDORS DON'T MATCH
+CREATE TABLE current_2
+(
+  upc NUMBER(10,0) ,
+  tray NUMBER(10,0) ,
+  rank_tray NUMBER(10,0) ,
+  current_tray NVARCHAR2(20) 
+);
+CREATE INDEX upc
+   ON current_2 ( upc);
+   
+--TABLE HOLDING FINAL UPC-TRAY MAPPING
+CREATE TABLE current_tray_final
+(
+  upc NUMBER(10,0) ,
+  current_Tray NVARCHAR2(20) 
+);
+CREATE INDEX upc
+   ON current_tray_final ( upc);
+   
+---TABLE CONTAINING COUNT OF UPT REPEATATION
+DROP TABLE upt1;
+CREATE TABLE upt1
+(
+  upc NUMBER(10,0) ,
+  upt NUMBER(10,0) ,
+  count_upt NUMBER(10,0) 
+);
+CREATE INDEX upc
+   ON upt1 ( upc);
+   
+--TABLE CONTAINING RANK OF UPT FOR A UPC
+DROP TABLE upt2;
+CREATE TABLE upt2
+(
+  upc NUMBER(10,0) ,
+  upt NUMBER(10,0) ,
+  count_upt NUMBER(10,0) ,
+  rank_upt NUMBER(10,0) 
+);
+CREATE INDEX upc
+   ON upt2 ( upc);
+   
+ --TABLE CONTAINING MOST REPEATED UPT AS CURRENT UPT FOR A UPC
+CREATE TABLE upt_current
+(
+  upc NUMBER(10,0) ,
+  upt NUMBER(10,0) 
+);
+CREATE INDEX upc
+   ON upt_current ( upc);
+   
+ --TABLE CONTAINING PRODUCT WITH ALL POSSIBLE UPT-TRAY COMBINATIONS AND COSTS
+DROP TABLE product_tray;
+CREATE TABLE product_tray
+(
+  UPC FLOAT(53) ,
+  UPT NUMBER(10,0) ,
+  tray_type VARCHAR2(20) ,
+  SP FLOAT(53) ,
+  CP FLOAT(53) ,
+  Current_UPT FLOAT(53) 
+);
+CREATE INDEX UPC
+   ON product_tray ( UPC);
+   
+ --TABLE CONTAINING COST COMPONENTS FPOR CORRESPONDING TRAY TYPES
+DROP TABLE product_tray_cost;
+CREATE TABLE product_tray_cost
+(
+  UPC FLOAT(53) ,
+  UPT NUMBER(10,0) ,
+  tray_type VARCHAR2(20) ,
+  SP FLOAT(53) ,
+  CP FLOAT(53) ,
+  Current_UPT FLOAT(53) ,
+  Primary_trans FLOAT(53) ,
+  Tray_hire FLOAT(53) ,
+  Depot_RHD FLOAT(53) ,
+  Store_rec FLOAT(53) ,
+  Store_handling FLOAT(53) ,
+  Tray_lending FLOAT(53) ,
+  ex_works FLOAT(53) 
+);
+CREATE INDEX Tray
+   ON product_tray_cost ( tray_type);
+
+--TABLE CONTAINING UPC-UPT-TRAY COMBINATIONS WITH CURRENT UPT AND CURRENT TRAY TYPE
+CREATE TABLE product_desc
+(
+  UPC FLOAT(53) ,
+  UPT NUMBER(10,0) ,
+  tray_type VARCHAR2(20) ,
+  SP FLOAT(53) ,
+  CP FLOAT(53) ,
+  Current_UPT FLOAT(53) ,
+  Primary_trans FLOAT(53) ,
+  Tray_hire FLOAT(53) ,
+  Depot_RHD FLOAT(53) ,
+  Store_rec FLOAT(53) ,
+  Store_handling FLOAT(53) ,
+  Tray_lending FLOAT(53) ,
+  ex_works FLOAT(53) ,
+  is_srp VARCHAR2(20) ,
+  SRP_total NUMBER(10,0) ,
+  Current_tray_type NVARCHAR2(20) 
+);
+CREATE INDEX UPC
+   ON product_desc ( UPC);   
+--TABLE FOR UPC-UPT-TRAY COMBINATION WITH TRAY SPECIFIC COSTS AND TRAY HEIGHTS FOR upc
+CREATE TABLE product_desc_1
+(
+  UPC FLOAT(53) ,
+  UPT NUMBER(10,0) ,
+  tray_type VARCHAR2(20) ,
+  SP FLOAT(53) ,
+  CP FLOAT(53) ,
+  Current_UPT FLOAT(53) ,
+  Primary_trans FLOAT(53) ,
+  Tray_hire FLOAT(53) ,
+  Depot_RHD FLOAT(53) ,
+  Store_rec FLOAT(53) ,
+  Store_handling FLOAT(53) ,
+  Tray_lending FLOAT(53) ,
+  ex_works FLOAT(53) ,
+  is_srp VARCHAR2(20) ,
+  SRP_total NUMBER(10,0) ,
+  Current_tray_type VARCHAR2(50) ,
+  current_t NVARCHAR2(20) ,
+  product_cost FLOAT(53) ,
+  current_u NUMBER(10,0) 
+);
+CREATE INDEX UPC
+   ON product_desc_1 ( UPC);
+
+--TABLES FOR CALCULATION OF TRAY HEIGHT FOR CURRENT TRAY
+DROP TABLE xyz;
+CREATE TABLE xyz
+(
+  UPC FLOAT(53) ,
+  UPT NUMBER(10,0) ,
+  tray VARCHAR2(50) ,
+  Current_UPT NUMBER(10,0) ,
+  current_tray VARCHAR2(20) ,
+  h2 NUMBER(10,0) ,
+  h5 NUMBER(10,0) ,
+  h7 NUMBER(10,0) 
+);
+CREATE INDEX upc
+
+CREATE TABLE xyz2
+(
+  UPC FLOAT(53) ,
+  Current_UPT NUMBER(10,0) ,
+  current_tray VARCHAR2(20) ,
+  h2 NUMBER(10,0) ,
+  h5 NUMBER(10,0) ,
+  h7 NUMBER(10,0) 
+);
+CREATE INDEX upc
+   ON xyz2 ( UPC);
+   
+ --TABLE FOR CALCULATION OF PRIMARY TRANSPORT COST FOR CARDBOARD BASED ON DOLLY VOLUME AND PRODUCT DIMENSIONS
+DROP TABLE product_desc_new;
+CREATE TABLE product_desc_new
+(
+  UPC FLOAT(53) ,
+  UPT NUMBER(10,0) ,
+  tray_type VARCHAR2(20) ,
+  SP FLOAT(53) ,
+  CP FLOAT(53) ,
+  Current_UPT FLOAT(53) ,
+  Primary_trans FLOAT(53) ,
+  Tray_hire FLOAT(53) ,
+  Depot_RHD FLOAT(53) ,
+  Store_rec FLOAT(53) ,
+  Store_handling FLOAT(53) ,
+  Tray_lending FLOAT(53) ,
+  ex_works FLOAT(53) ,
+  is_srp VARCHAR2(20) ,
+  SRP_total NUMBER(10,0) ,
+  current_tray_type VARCHAR2(20) ,
+  product_cost FLOAT(53) ,
+  width FLOAT(53) ,
+  height FLOAT(53) ,
+  depth FLOAT(53) ,
+  dolly_vol FLOAT(53) ,
+  dolly_cost FLOAT(53) ,
+  primary_trans_cost FLOAT(53) 
+);
+CREATE INDEX UPC
+   ON product_desc_new ( UPC);
+   
+   ON xyz ( UPC);
+   
+--FINAL TABLE FOR PRODUCT DESCRIPTION WITH TRAY SPECEFIC COSTS AND UPT-TRAY COMBINATIONS
+DROP TABLE UoD_product_description;
+CREATE TABLE UoD_product_description
+(
+  UPC FLOAT(53) ,
+  UPT NUMBER(10,0) ,
+  tray_type VARCHAR2(20) ,
+  SP FLOAT(53) ,
+  CP FLOAT(53) ,
+  Current_UPT FLOAT(53) ,
+  Primary_trans FLOAT(53) ,
+  Tray_hire FLOAT(53) ,
+  Depot_RHD FLOAT(53) ,
+  Store_rec FLOAT(53) ,
+  Store_handling FLOAT(53) ,
+  Tray_lending FLOAT(53) ,
+  ex_works FLOAT(53) ,
+  is_srp VARCHAR2(20) ,
+  SRP_total NUMBER(10,0) ,
+  current_tray_type VARCHAR2(20) ,
+  product_cost FLOAT(53) ,
+  width FLOAT(53) ,
+  height FLOAT(53) ,
+  depth FLOAT(53) ,
+  dolly_vol FLOAT(53) ,
+  dolly_cost FLOAT(53) ,
+  primary_trans_cost FLOAT(53) ,
+  tray_width FLOAT(53) ,
+  tray_depth FLOAT(53) ,
+  tray_height FLOAT(53) ,
+  fit_ww FLOAT(53) ,
+  fit_wd FLOAT(53) ,
+  unit_layer FLOAT(53) ,
+  layers NUMBER(10,0) ,
+  trans FLOAT(53) 
+);
+CREATE INDEX UPC
+   ON UoD_product_description ( UPC);
+   
+   --TABLE FOR HOLDING CARDBOARD PRIMARY TRANSORT COST FOR CALCULATION OF EXWORKS
+CREATE TABLE cardboard_cost
+(
+  upc NUMBER(10,0) ,
+  cost FLOAT(53) 
+);
+CREATE INDEX upc
+   ON cardboard_cost ( upc);
+   
+   
+      
+--creating  table to store weekly demand and store attributes required for order plan generation--
+   
+   CREATE TABLE UoD_Weekly_Demand
+(
+  UPC FLOAT(53) ,
+  store NUMBER(10,0) ,
+  start_dt FLOAT(53) ,
+  Units_w1 FLOAT(53) ,
+  Units_w2 FLOAT(53) ,
+  Units_w3 FLOAT(53) ,
+  Units_w4 FLOAT(53) ,
+  Units_w5 FLOAT(53) ,
+  Units_w6 FLOAT(53) ,
+  Units_w7 FLOAT(53) ,
+  Units_w8 FLOAT(53) ,
+  Units_w9 FLOAT(53) ,
+  Units_w10 FLOAT(53) ,
+  Units_w11 FLOAT(53) ,
+  Units_w12 FLOAT(53) ,
+  Units_w13 FLOAT(53) ,
+  Units_w14 FLOAT(53) ,
+  Units_w15 FLOAT(53) ,
+  Units_w16 FLOAT(53) ,
+  Units_w17 FLOAT(53) ,
+  Units_w18 FLOAT(53) ,
+  Units_w19 FLOAT(53) ,
+  Units_w20 FLOAT(53) ,
+  Units_w21 FLOAT(53) ,
+  Units_w22 FLOAT(53) ,
+  Units_w23 FLOAT(53) ,
+  Units_w24 FLOAT(53) ,
+  Units_w25 FLOAT(53) ,
+  Units_w26 FLOAT(53) ,
+  Units_w27 FLOAT(53) ,
+  Units_w28 FLOAT(53) ,
+  Units_w29 FLOAT(53) ,
+  Units_w30 FLOAT(53) ,
+  Units_w31 FLOAT(53) ,
+  Units_w32 FLOAT(53) ,
+  Units_w33 FLOAT(53) ,
+  Units_w34 FLOAT(53) ,
+  Units_w35 FLOAT(53) ,
+  stg NVARCHAR2(20) ,
+  start_ DATE ,
+  model_code VARCHAR2(20) ,
+  c1 NUMBER(10,0) ,
+  c2 FLOAT(53) ,
+  c3 FLOAT(53) ,
+  sp FLOAT(53) ,
+  cp FLOAT(53) ,
+  margin FLOAT(53) ,
+  waste_pct FLOAT(53) ,
+  waste_constraint FLOAT(53) ,
+  launch_date DATE ,
+  excess_flag VARCHAR2(20) ,
+  day_num NUMBER(10,0) ,
+  dow_pct FLOAT(53) ,
+  depot VARCHAR2(20) ,
+  life NUMBER(10,0) 
+);
+CREATE INDEX IX_master1_upc
+   ON UoD_Weekly_Demand ( upc);
+CREATE INDEX IX_master1_store
+   ON UoD_Weekly_Demand ( store);
+ 
+--creating temporary table to operate on stroe schedule schedule raw file--
+CREATE TABLE temp1
+(
+  storecode NUMBER(10,0) ,
+  begin_date DATE ,
+  day_schedule NVARCHAR2(20) ,
+  day_num NUMBER(10,0) ,
+  rank_day FLOAT(53) ,
+  end_date DATE 
+);
+CREATE INDEX store_sched_final_1
+   ON temp1 ( storecode);
+ 
+--creating temporary table to operate on network schedule raw file--
+CREATE TABLE temp2
+(
+  PRODUCT_ID FLOAT(53) ,
+  SINK_ID NVARCHAR2(255) ,
+  EFFECTIVE_BEGIN_DT DATE ,
+  rcpt NVARCHAR2(255) ,
+  upt FLOAT(53) ,
+  end_date DATE ,
+  day_num NUMBER(10,0) 
+);
+CREATE INDEX network_sched_final
+   ON temp2 ( PRODUCT_ID);
+
+   
+--creating temporary table to operate on network schedule raw file--
+CREATE TABLE temp3
+(
+  PRODUCT_ID FLOAT(53) ,
+  SINK_ID NVARCHAR2(255) ,
+  EFFECTIVE_BEGIN_DT DATE ,
+  rcpt NVARCHAR2(255) ,
+  upt FLOAT(53) ,
+  end_date DATE ,
+  day_num NUMBER(10,0) 
+);
+CREATE INDEX network_sched_final
+   ON temp3 ( PRODUCT_ID);
+
+
+--creating table to store master demand data set with Network schedule and store schedule data added--                               
+CREATE TABLE UoD_Daily_Demand
+(
+  upc FLOAT(53) ,
+  STORECODE FLOAT(53) ,
+  depot VARCHAR2(20) ,
+  demand FLOAT(53) ,
+  fdate DATE ,
+  stg VARCHAR2(50) ,
+  model_code VARCHAR2(20) ,
+  c1 NUMBER(10,0) ,
+  c2 FLOAT(53) ,
+  c3 FLOAT(53) ,
+  sp FLOAT(53) ,
+  cp FLOAT(53) ,
+  margin FLOAT(53) ,
+  waste_pct FLOAT(53) ,
+  waste_constraint FLOAT(53) ,
+  launch_date DATE ,
+  excess_flag VARCHAR2(20) ,
+  life NUMBER(10,0) ,
+  flag1 NUMBER(10,0) ,
+  flag2 NUMBER(10,0) ,
+  flag3 NUMBER(10,0) ,
+  flag4 NUMBER(10,0) 
+);
+CREATE INDEX ix_DEMAND_FADTE
+   ON UoD_Daily_Demand ( fdate);
+CREATE INDEX ix_DEMAND_UPC
+   ON UoD_Daily_Demand ( upc);
+CREATE INDEX ix_DEMAND_STORECODE
+   ON UoD_Daily_Demand ( storecode);
+CREATE INDEX ix_DEMAND_UPC_STORECODE_DATE
+   ON UoD_Daily_Demand ( UPC,
+                   storecode,
+                   FDATE);
+                   
+--ABOVE INDEXES ARE PART OF OPTIMIZATION.
+
+--creating table to end of day stock data--
+CREATE TABLE stock_temp
+(
+  upc FLOAT(53) ,
+  storecode FLOAT(53) ,
+  upt FLOAT(53) ,
+  on_hand FLOAT(53) ,
+  waste_pct FLOAT(53) ,
+  opdate DATE 
+);
+CREATE INDEX abc
+   ON stock_temp ( opdate);
+
+   
+ --Temporary table to hold subsetted demand data to be processed for order plan  
+   CREATE TABLE TEMP_TABLE_11
+(
+  upc FLOAT(53) ,
+  STORECODE FLOAT(53) ,
+  depot VARCHAR2(20) ,
+  demand FLOAT(53) ,
+  fdate DATE ,
+  stg VARCHAR2(50) ,
+  model_code VARCHAR2(20) ,
+  c1 NUMBER(10,0) ,
+  c2 FLOAT(53) ,
+  c3 FLOAT(53) ,
+  sp FLOAT(53) ,
+  cp FLOAT(53) ,
+  margin FLOAT(53) ,
+  waste_pct FLOAT(53) ,
+  waste_constraint FLOAT(53) ,
+  launch_date DATE ,
+  excess_flag VARCHAR2(20) ,
+  life NUMBER(10,0) ,
+  flag1 NUMBER(10,0) ,
+  flag2 NUMBER(10,0) ,
+  TARGET_INVENTORY FLOAT(53) ,
+  DEMAND_L FLOAT(53) 
+);
+
+
+
+--Temporary table to hold the order plan for 1 day
+CREATE TABLE ORDER_PLAN
+(
+  upc FLOAT(53) ,
+  STORECODE FLOAT(53) ,
+  depot VARCHAR2(20) ,
+  demand FLOAT(53) ,
+  fdate DATE ,
+  stg VARCHAR2(50) ,
+  model_code VARCHAR2(20) ,
+  c1 NUMBER(10,0) ,
+  c2 FLOAT(53) ,
+  c3 FLOAT(53) ,
+  sp FLOAT(53) ,
+  cp FLOAT(53) ,
+  margin FLOAT(53) ,
+  waste_pct FLOAT(53) ,
+  waste_constraint FLOAT(53) ,
+  launch_date DATE ,
+  excess_flag VARCHAR2(20) ,
+  life NUMBER(10,0) ,
+  flag1 NUMBER(10,0) ,
+  flag2 NUMBER(10,0) ,
+  TARGET_INVENTORY FLOAT(53) ,
+  DEMAND_L FLOAT(53) ,
+  upt NUMBER(10,0) ,
+  on_hand FLOAT(53) ,
+  orders NUMBER(10,0) 
+);
+CREATE INDEX ix_DEMAND_UPC
+   ON ORDER_PLAN ( upc);
+
+--Intermediate table to hold the order plan for all Day-store combinations
+
+CREATE TABLE UoD_daily_store_orders
+(
+  upc FLOAT(53) ,
+  storecode NUMBER(10,0) ,
+  depot VARCHAR2(20) ,
+  demand FLOAT(53) ,
+  fdate DATE ,
+  demand_l FLOAT(53) ,
+  on_hand FLOAT(53) ,
+  orders NUMBER(10,0) ,
+  upt NUMBER(10,0) ,
+  waste FLOAT(53) ,
+  Availability_flag NUMBER(10,0) ,
+  sold_units FLOAT(53) 
+);
+CREATE INDEX ix_upc
+   ON UoD_daily_store_orders ( upc);
+CREATE INDEX upc_s_u_f
+   ON UoD_daily_store_orders ( upc,
+                     storecode,
+                     upt,
+                     fdate);
+
+--Table to hold Order plan data at UPC-UPT-depot level--  
+CREATE TABLE temp_table_3_depot
+(
+  UPC FLOAT(53) ,
+  upt NUMBER(10,0) ,
+  depot VARCHAR2(50) ,
+  demand FLOAT(53) ,
+  on_hand FLOAT(53) ,
+  orders NUMBER(10,0) ,
+  Waste FLOAT(53) ,
+  Sold_Units FLOAT(53) 
+);
+CREATE INDEX temp_table_3_UPC
+   ON temp_table_3_depot ( UPC);
+   
+   
+ --table to hold order plan data rolled up at UPC-UPT level  
+ CREATE TABLE temp_table_3
+(
+  UPC FLOAT(53) ,
+  upt NUMBER(10,0) ,
+  demand FLOAT(53) ,
+  on_hand FLOAT(53) ,
+  orders NUMBER(10,0) ,
+  Waste FLOAT(53) ,
+  Sold_Units FLOAT(53) 
+);
+CREATE INDEX temp_table_3_UPC
+   ON temp_table_3 ( UPC);
+   
+   
+--DROP TABLE temp_table_4;
+
+--table to calculate basic Cost and revenue components--
+CREATE TABLE temp_table_4
+(
+  UPC FLOAT(53) ,
+  upt NUMBER(10,0) ,
+  is_srp VARCHAR2(20) ,
+  tray_type VARCHAR2(20) ,
+  Current_tray_type VARCHAR2(20) ,
+  Current_UPT NUMBER(10,0) ,
+  sp FLOAT(53) ,
+  Product_Cost FLOAT(53) ,
+  demand FLOAT(53) ,
+  orders FLOAT(53) ,
+  Waste FLOAT(53) ,
+  Sold_Units FLOAT(53) ,
+  lost_sales FLOAT(53) ,
+  Primary_transport FLOAT(53) ,
+  Tray_hire_cost FLOAT(53) ,
+  Depot_RHD_cost FLOAT(53) ,
+  Tray_lending_cost FLOAT(53) ,
+  Store_handling_cost FLOAT(53) ,
+  ex_works_cost FLOAT(53) ,
+  Sales_Revenue FLOAT(53) ,
+  Cost_of_sold FLOAT(53) ,
+  Waste_Recovery FLOAT(53) ,
+  Cost_of_waste FLOAT(53) 
+);
+CREATE INDEX temp_table_4_UPC
+   ON temp_table_4 ( UPC);
+
+   
+--table to hold data for basic cost and revenue components at depot level--
+CREATE TABLE temp_table_4_depot
+(
+  UPC   FLOAT(53) ,
+  upt NUMBER(10,0) ,
+  depot VARCHAR2(30) ,
+  is_srp VARCHAR2(20) ,
+  tray_type VARCHAR2(20) ,
+  Current_tray_type VARCHAR2(20) ,
+  Current_UPT NUMBER(10,0) ,
+  sp FLOAT(53) ,
+  Product_Cost FLOAT(53) ,
+  demand FLOAT(53) ,
+  orders FLOAT(53) ,
+  Waste FLOAT(53) ,
+  Sold_Units FLOAT(53) ,
+  lost_sales FLOAT(53) ,
+  Primary_transport FLOAT(53) ,
+  Tray_hire_cost FLOAT(53) ,
+  Depot_RHD_cost FLOAT(53) ,
+  Tray_lending_cost FLOAT(53) ,
+  Store_handling_cost FLOAT(53) ,
+  ex_works_cost FLOAT(53) ,
+  Sales_Revenue FLOAT(53) ,
+  Cost_of_sold FLOAT(53) ,
+  Waste_Recovery FLOAT(53) ,
+  Cost_of_waste FLOAT(53) 
+);
+CREATE INDEX temp_table_4_UPC
+   ON temp_table_4_depot ( UPC);
+   
+
+--setting tray priorities and calculating E2E costs etc at UPC-UPT-depot level--
+CREATE TABLE temp_table_5_depot
+(
+  UPC   FLOAT(53) ,
+  upt NUMBER(10,0) ,
+  depot VARCHAR2(30) ,
+  is_srp VARCHAR2(20) ,
+  tray_type VARCHAR2(20) ,
+  Current_tray_type2 VARCHAR2(20) ,
+  tray_prioirty NUMBER(10,0) ,
+  Current_UPT NUMBER(10,0) ,
+  sp FLOAT(53) ,
+  Product_Cost FLOAT(53) ,
+  demand FLOAT(53) ,
+  orders FLOAT(53) ,
+  Waste FLOAT(53) ,
+  Sold_Units FLOAT(53) ,
+  lost_sales FLOAT(53) ,
+  Primary_transport FLOAT(53) ,
+  Tray_hire_cost FLOAT(53) ,
+  Depot_RHD_cost FLOAT(53) ,
+  Tray_lending_cost FLOAT(53) ,
+  Store_handling_cost FLOAT(53) ,
+  ex_works_cost FLOAT(53) ,
+  Sales_Revenue FLOAT(53) ,
+  Cost_of_sold FLOAT(53) ,
+  Waste_Recovery FLOAT(53) ,
+  Cost_of_waste FLOAT(53) ,
+  E2E_Cost FLOAT(53) ,
+  E2E_revenue FLOAT(53) ,
+  E2E_Profit FLOAT(53) ,
+  Gross_selling_margin FLOAT(53) ,
+  Gross_profit FLOAT(53) ,
+  Net_profit FLOAT(53) 
+);
+CREATE INDEX temp_table_5_UPC
+   ON temp_table_5_depot ( UPC);
+   
+ 
+--ranking UPC-UPT combinations on basis of E2E Profit 
+CREATE TABLE temp_table_6_depot
+(
+  UPC   FLOAT(53) ,
+  upt NUMBER(10,0) ,
+  depot VARCHAR2(30) ,
+  is_srp VARCHAR2(20) ,
+  tray_type VARCHAR2(20) ,
+  Current_tray_type2 VARCHAR2(20) ,
+  tray_prioirty NUMBER(10,0) ,
+  Current_UPT NUMBER(10,0) ,
+  sp FLOAT(53) ,
+  Product_Cost FLOAT(53) ,
+  demand FLOAT(53) ,
+  orders FLOAT(53) ,
+  Waste FLOAT(53) ,
+  Sold_Units FLOAT(53) ,
+  lost_sales FLOAT(53) ,
+  Primary_transport FLOAT(53) ,
+  Tray_hire_cost FLOAT(53) ,
+  Depot_RHD_cost FLOAT(53) ,
+  Tray_lending_cost FLOAT(53) ,
+  Store_handling_cost FLOAT(53) ,
+  ex_works_cost FLOAT(53) ,
+  Sales_Revenue FLOAT(53) ,
+  Cost_of_sold FLOAT(53) ,
+  Waste_Recovery FLOAT(53) ,
+  Cost_of_waste FLOAT(53) ,
+  E2E_Cost FLOAT(53) ,
+  E2E_revenue FLOAT(53) ,
+  E2E_Profit FLOAT(53) ,
+  Gross_selling_margin FLOAT(53) ,
+  Gross_profit FLOAT(53) ,
+  Net_profit FLOAT(53) ,
+  Profit_Rank NUMBER(10,0) 
+);
+CREATE INDEX temp_table_6_UPC
+   ON temp_table_6_depot ( UPC);
+   
+ 
+
+--table to hold data fro Current UPT at upc-depot level-- 
+CREATE TABLE temp_table_7_current_depot
+(
+  UPC   FLOAT(53) ,
+  sp FLOAT(53) ,
+  Product_Cost FLOAT(53) ,
+  demand FLOAT(53) ,
+  is_srp VARCHAR2(20) ,
+  depot VARCHAR2(30) ,
+  current_upt NUMBER(10,0) ,
+  current_tray_type VARCHAR2(20) ,
+  current_orders FLOAT(53) ,
+  current_Waste FLOAT(53) ,
+  current_Sold_Units FLOAT(53) ,
+  current_lost_sales FLOAT(53) ,
+  current_Primary_transport FLOAT(53) ,
+  current_Tray_hire_cost FLOAT(53) ,
+  current_Depot_RHD_cost FLOAT(53) ,
+  current_Tray_lending_cost FLOAT(53) ,
+  current_Store_handling_cost FLOAT(53) ,
+  current_ex_works_cost FLOAT(53) ,
+  current_Sales_Revenue FLOAT(53) ,
+  current_Cost_of_sold FLOAT(53) ,
+  current_Waste_Recovery FLOAT(53) ,
+  current_Cost_of_waste FLOAT(53) ,
+  current_E2E_Cost FLOAT(53) ,
+  current_E2E_revenue FLOAT(53) ,
+  current_E2E_Profit FLOAT(53) ,
+  current_Gross_selling_margin FLOAT(53) ,
+  current_Gross_profit FLOAT(53) ,
+  current_Net_profit FLOAT(53) ,
+  current_Profit_Rank FLOAT(53) 
+);
+CREATE INDEX temp_table_7_CURRENT_UPC
+   ON temp_table_7_CURRENT_depot ( UPC);
+   
+   
+ --table to hold data for Current UPT at UPC level--  
+ CREATE TABLE temp_table_7_current
+(
+  UPC FLOAT(53) ,
+  sp FLOAT(53) ,
+  Product_Cost FLOAT(53) ,
+  demand FLOAT(53) ,
+  is_srp VARCHAR2(20) ,
+  current_upt NUMBER(10,0) ,
+  current_tray_type VARCHAR2(20) ,
+  current_orders FLOAT(53) ,
+  current_Waste FLOAT(53) ,
+  current_Sold_Units FLOAT(53) ,
+  current_lost_sales FLOAT(53) ,
+  current_Primary_transport FLOAT(53) ,
+  current_Tray_hire_cost FLOAT(53) ,
+  current_Depot_RHD_cost FLOAT(53) ,
+  current_Tray_lending_cost FLOAT(53) ,
+  current_Store_handling_cost FLOAT(53) ,
+  current_ex_works_cost FLOAT(53) ,
+  current_Sales_Revenue FLOAT(53) ,
+  current_Cost_of_sold FLOAT(53) ,
+  current_Waste_Recovery FLOAT(53) ,
+  current_Cost_of_waste FLOAT(53) ,
+  current_E2E_Cost FLOAT(53) ,
+  current_E2E_revenue FLOAT(53) ,
+  current_E2E_Profit FLOAT(53) ,
+  current_Gross_selling_margin FLOAT(53) ,
+  current_Gross_profit FLOAT(53) ,
+  current_Net_profit FLOAT(53) ,
+  current_Profit_Rank FLOAT(53) 
+);
+CREATE INDEX temp_table_7_CURRENT_UPC
+   ON temp_table_7_CURRENT ( UPC);   
+   
+   
+   
+ --table to hold data like E2E profit and tray priorities etc at UPC-UPT level--
+CREATE TABLE temp_table_5
+(
+  UPC FLOAT(53) ,
+  upt NUMBER(10,0) ,
+  is_srp VARCHAR2(20) ,
+  tray_type VARCHAR2(20) ,
+  Current_tray_type2 VARCHAR2(20) ,
+  tray_prioirty NUMBER(10,0) ,
+  Current_UPT NUMBER(10,0) ,
+  sp FLOAT(53) ,
+  Product_Cost FLOAT(53) ,
+  demand FLOAT(53) ,
+  orders FLOAT(53) ,
+  Waste FLOAT(53) ,
+  Sold_Units FLOAT(53) ,
+  lost_sales FLOAT(53) ,
+  Primary_transport FLOAT(53) ,
+  Tray_hire_cost FLOAT(53) ,
+  Depot_RHD_cost FLOAT(53) ,
+  Tray_lending_cost FLOAT(53) ,
+  Store_handling_cost FLOAT(53) ,
+  ex_works_cost FLOAT(53) ,
+  Sales_Revenue FLOAT(53) ,
+  Cost_of_sold FLOAT(53) ,
+  Waste_Recovery FLOAT(53) ,
+  Cost_of_waste FLOAT(53) ,
+  E2E_Cost FLOAT(53) ,
+  E2E_revenue FLOAT(53) ,
+  E2E_Profit FLOAT(53) ,
+  Gross_selling_margin FLOAT(53) ,
+  Gross_profit FLOAT(53) ,
+  Net_profit FLOAT(53) 
+);
+CREATE INDEX temp_table_5_UPC
+   ON temp_table_5 ( UPC);
+
+   
+   
+
+--table to hold data at UPC level ranked by E2E profit--
+   CREATE TABLE UoD_Cost_Revenue_all_UPT
+(
+  UPC FLOAT(53) ,
+  upt NUMBER(10,0) ,
+  is_srp VARCHAR2(20) ,
+  tray_type VARCHAR2(20) ,
+  Current_tray_type2 VARCHAR2(20) ,
+  tray_prioirty NUMBER(10,0) ,
+  Current_UPT NUMBER(10,0) ,
+  sp FLOAT(53) ,
+  Product_Cost FLOAT(53) ,
+  demand FLOAT(53) ,
+  orders FLOAT(53) ,
+  Waste FLOAT(53) ,
+  Sold_Units FLOAT(53) ,
+  lost_sales FLOAT(53) ,
+  Primary_transport FLOAT(53) ,
+  Tray_hire_cost FLOAT(53) ,
+  Depot_RHD_cost FLOAT(53) ,
+  Tray_lending_cost FLOAT(53) ,
+  Store_handling_cost FLOAT(53) ,
+  ex_works_cost FLOAT(53) ,
+  Sales_Revenue FLOAT(53) ,
+  Cost_of_sold FLOAT(53) ,
+  Waste_Recovery FLOAT(53) ,
+  Cost_of_waste FLOAT(53) ,
+  E2E_Cost FLOAT(53) ,
+  E2E_revenue FLOAT(53) ,
+  E2E_Profit FLOAT(53) ,
+  Gross_selling_margin FLOAT(53) ,
+  Gross_profit FLOAT(53) ,
+  Net_profit FLOAT(53) ,
+  Profit_Rank NUMBER(10,0) 
+);
+CREATE INDEX temp_table_6_UPC
+   ON UoD_Cost_Revenue_all_UPT ( UPC);
+
+   
+   
+
+--table to hold data at UPC level for rank 1 UPT for each UPC--
+   CREATE TABLE temp_table_7_optimal
+(
+  UPC FLOAT(53) ,
+  sp FLOAT(53) ,
+  Product_Cost FLOAT(53) ,
+  demand FLOAT(53) ,
+  is_srp VARCHAR2(20) ,
+  optimal_upt NUMBER(10,0) ,
+  optimal_tray_type VARCHAR2(20) ,
+  optimal_orders FLOAT(53) ,
+  optimal_Waste FLOAT(53) ,
+  optimal_Sold_Units FLOAT(53) ,
+  optimal_lost_sales FLOAT(53) ,
+  optimal_Primary_transport FLOAT(53) ,
+  optimal_Tray_hire_cost FLOAT(53) ,
+  optimal_Depot_RHD_cost FLOAT(53) ,
+  optimal_Tray_lending_cost FLOAT(53) ,
+  optimal_Store_handling_cost FLOAT(53) ,
+  optimal_ex_works_cost FLOAT(53) ,
+  optimal_Sales_Revenue FLOAT(53) ,
+  optimal_Cost_of_sold FLOAT(53) ,
+  optimal_Waste_Recovery FLOAT(53) ,
+  optimal_Cost_of_waste FLOAT(53) ,
+  optimal_E2E_Cost FLOAT(53) ,
+  optimal_E2E_revenue FLOAT(53) ,
+  optimal_E2E_Profit FLOAT(53) ,
+  optimal_Gross_selling_margin FLOAT(53) ,
+  optimal_Gross_profit FLOAT(53) ,
+  optimal_Net_profit FLOAT(53) ,
+  optimal_Profit_Rank FLOAT(53) 
+);
+CREATE INDEX temp_table_7_optimal_UPC
+   ON temp_table_7_optimal ( UPC);
+
+   
+   
+--Final table that holds all cost and revenue components for Current and Optimal UPT at UPC level--
+CREATE TABLE UoD_Model_recommendations
+(
+  UPC FLOAT(53) ,
+  sp FLOAT(53) ,
+  Product_Cost FLOAT(53) ,
+  demand FLOAT(53) ,
+  is_srp VARCHAR2(20) ,
+  current_upt NUMBER(10,0) ,
+  current_tray_type VARCHAR2(20) ,
+  current_orders FLOAT(53) ,
+  current_Waste FLOAT(53) ,
+  current_Sold_Units FLOAT(53) ,
+  current_lost_sales FLOAT(53) ,
+  current_Primary_transport FLOAT(53) ,
+  current_Tray_hire_cost FLOAT(53) ,
+  current_Depot_RHD_cost FLOAT(53) ,
+  current_Tray_lending_cost FLOAT(53) ,
+  current_Store_handling_cost FLOAT(53) ,
+  current_ex_works_cost FLOAT(53) ,
+  current_Sales_Revenue FLOAT(53) ,
+  current_Cost_of_sold FLOAT(53) ,
+  current_Waste_Recovery FLOAT(53) ,
+  current_Cost_of_waste FLOAT(53) ,
+  current_E2E_Cost FLOAT(53) ,
+  current_E2E_revenue FLOAT(53) ,
+  current_E2E_Profit FLOAT(53) ,
+  current_Gross_selling_margin FLOAT(53) ,
+  current_Gross_profit FLOAT(53) ,
+  current_Net_profit FLOAT(53) ,
+  current_Profit_Rank FLOAT(53) ,
+  optimal_upt NUMBER(10,0) ,
+  optimal_tray_type VARCHAR2(20) ,
+  optimal_orders FLOAT(53) ,
+  optimal_Waste FLOAT(53) ,
+  optimal_Sold_Units FLOAT(53) ,
+  optimal_lost_sales FLOAT(53) ,
+  optimal_Primary_transport FLOAT(53) ,
+  optimal_Tray_hire_cost FLOAT(53) ,
+  optimal_Depot_RHD_cost FLOAT(53) ,
+  optimal_Tray_lending_cost FLOAT(53) ,
+  optimal_Store_handling_cost FLOAT(53) ,
+  optimal_ex_works_cost FLOAT(53) ,
+  optimal_Sales_Revenue FLOAT(53) ,
+  optimal_Cost_of_sold FLOAT(53) ,
+  optimal_Waste_Recovery FLOAT(53) ,
+  optimal_Cost_of_waste FLOAT(53) ,
+  optimal_E2E_Cost FLOAT(53) ,
+  optimal_E2E_revenue FLOAT(53) ,
+  optimal_E2E_Profit FLOAT(53) ,
+  optimal_Gross_selling_margin FLOAT(53) ,
+  optimal_Gross_profit FLOAT(53) ,
+  optimal_Net_profit FLOAT(53) ,
+  optimal_Profit_Rank FLOAT(53) 
+);
+CREATE INDEX Cost_Revenue_UPC
+   ON UoD_Model_recommendations ( UPC);
