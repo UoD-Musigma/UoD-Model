@@ -1,0 +1,698 @@
+ --FUNCTION TO CALCULATE MAXIMUM OF TWO NUMBERS
+ 
+ CREATE OR REPLACE FUNCTION maximum_upt
+(
+  v_UPT1 IN float,
+  v_UPT2 IN float  
+)
+RETURN FLOAT
+AS
+  v_ret FLOAT(53);
+BEGIN   
+   IF v_UPT1 > v_UPT2 THEN   
+   v_ret := v_UPT1;
+   else
+   v_ret := v_UPT2; 
+   END IF;
+   RETURN v_ret;
+END;
+   
+--FUNCTION TO GENERATE TABLE WITH ALL POSSIBLE UPT FOR A UPC BASED ON THE MAX UPT IN THE LARGEST TRAY
+CREATE OR REPLACE PROCEDURE UoD_Proc_Permissible_UPT
+AS
+   v_upc FLOAT(53);
+   v_upt NUMBER(10,0);
+   v_Tray_type VARCHAR2(20);
+   v_count NUMBER(10,0);
+
+BEGIN
+   SELECT COUNT(*) 
+
+     INTO v_count
+     FROM dim_upt_pivot ;
+   EXECUTE IMMEDIATE ' TRUNCATE TABLE list_upc_1 ';
+   INSERT INTO list_upc_1
+     ( SELECT * 
+       FROM list_upc  );
+   v_tray_type := 'Metric_Tray_7' ;
+   WHILE v_count > 0 
+   LOOP 
+      
+      BEGIN
+         EXECUTE IMMEDIATE ' TRUNCATE TABLE list_upc_2 ';
+         INSERT INTO list_upc_2
+           ( SELECT * 
+             FROM list_upc_1 WHERE ROWNUM <= 1 );
+         SELECT upc 
+
+           INTO v_upc
+           FROM list_upc_2 ;
+         SELECT Metric_7IN_MAX_UPT 
+
+           INTO v_upt
+           FROM dim_upt_pivot 
+          WHERE upc = v_upc;
+         WHILE ( v_upt >= 1 ) 
+         LOOP 
+            
+            BEGIN
+               INSERT INTO upt_list2
+                 VALUES ( v_upc, v_upt, v_tray_type );
+               v_upt := (v_upt - 1) ;
+            END;
+         END LOOP;
+         DELETE list_upc_1
+
+          WHERE upc = v_upc;
+         v_count := v_count - 1 ;
+      END;
+   END LOOP;
+END;
+
+--Procedure to create an exhaustive list of UPC-UPT-Tray type combination
+
+CREATE OR REPLACE PROCEDURE UoD_Proc_row-wise_UPT
+(
+   v_tray_type IN VARCHAR2(20)
+)
+AS
+   v_upc FLOAT(53);
+   v_upt NUMBER(10,0);
+   v_count NUMBER(10,0);
+
+BEGIN
+   SELECT COUNT(*) 
+     INTO v_count
+     FROM dim_upt_pivot ;
+     
+   EXECUTE IMMEDIATE ' TRUNCATE TABLE list_upc_1 ';
+   
+   INSERT INTO list_upc_1
+     ( SELECT * 
+       FROM list_upc  );
+       
+   --v_tray_type := 'Metric_Tray_7' ;
+   WHILE v_count > 0 
+   LOOP 
+      
+      BEGIN
+         EXECUTE IMMEDIATE ' TRUNCATE TABLE list_upc_2 ';
+         
+         INSERT INTO list_upc_2
+           ( SELECT * 
+             FROM list_upc_1 WHERE ROWNUM <= 1 );
+         
+         SELECT upc 
+           INTO v_upc
+           FROM list_upc_2;
+           
+         SELECT
+         CASE 
+               WHEN v_tray_type='Brown_tray' THEN Brown_tray
+           WHEN v_tray_type='Cardboard' THEN Cardboard
+           WHEN v_tray_type='Metric_Tray_7' THEN Metric_7IN_MAX_UPT
+           WHEN v_tray_type='Metric_Tray_5' THEN Metric_5IN_MAX_UPT
+           WHEN v_tray_type='Metric_Tray_2' THEN Metric_2IN_MAX_UPT
+           WHEN v_tray_type='Half_Tray_7' THEN Half_7IN_MAX_UPT
+           WHEN v_tray_type='Half_Tray_5' THEN Half_5IN_MAX_UPT
+           WHEN v_tray_type='Half_Tray_2' THEN Half_2IN_MAX_UPT
+         END
+           INTO v_upt
+           FROM dim_upt_pivot 
+           WHERE upc = v_upc;
+           
+         WHILE ( v_upt >= 1 ) 
+         LOOP 
+            
+            BEGIN
+               INSERT INTO upt_list2
+                 VALUES ( v_upc, v_upt, v_tray_type );
+               v_upt := (v_upt - 1) ;
+            END;
+         END LOOP;
+         
+         DELETE list_upc_1
+          WHERE upc = v_upc;
+          
+         v_count := v_count - 1 ;
+      END;
+   END LOOP;
+END;
+
+
+
+--creating procedure to convert weekly demand to daily demand and adding network schedule and store schedule                                                                    
+create or replace
+PROCEDURE UoD_Proc_Append_Weekly
+(
+  v_myDynamicColumn IN VARCHAR2 DEFAULT NULL ,
+  v_count IN NUMBER DEFAULT NULL 
+)
+AS
+
+begin
+EXECUTE IMMEDIATE 'INSERT INTO UoD_Daily_Demand
+  ( SELECT a.upc ,
+           to_number(substr(a.location_id,2,8)) ,
+           a.depot ,' || 
+           v_myDynamicColumn || ' * profile as abc  ,
+           (( ' ||v_count || '  - 1) * 7 + a.day_num - 1) + start_dt,
+           a.stg ,
+           model ,
+           day_full ,
+           day_part ,
+           mult ,
+           unit_retail ,
+           unit_cost ,
+           margin ,
+           waste_pct ,
+           waste_c ,
+           on_range_dt ,
+           allow_excess_ind ,
+           life ,
+           b.day_schedule ,
+           c.rcpt ,
+           D.rcpt, null
+    FROM UoD_Weekly_Demand a
+           LEFT JOIN temp1 b
+            ON to_number(substr(a.location_id,2,8)) = b.storecode
+           AND a.day_num = b.day_num
+           LEFT JOIN temp2 c
+            ON a.upc = c.product_id
+           AND a.depot = SUBSTR(c.sink_id, 8, 5)
+           AND a.day_num = c.day_num
+           LEFT JOIN temp3 D
+            ON a.upc = D.product_id
+           AND to_number(substr(a.location_id,2,8)) = CAST(SUBSTR(D.sink_id, 2, 8) AS NUMBER(10,0))
+           AND a.day_num = D.day_num ) ';
+           end;
+           
+--procedure to call above procedure N times--                      
+create or replace
+PROCEDURE UoD_Proc_Append_Transformations
+AS
+   v_count NUMBER(10,0);
+   v_col NVARCHAR2(20);
+   v_dateff DATE;
+   v_datef DATE;
+
+BEGIN
+   v_count := 1 ;
+   v_dateff := to_date('2014-09-14','yyyy-mm-dd') ;
+   WHILE v_count < 36 
+   LOOP 
+      
+      BEGIN
+         v_datef :=  ((v_count - 1) * 7)+ v_dateff ;
+         EXECUTE IMMEDIATE ' TRUNCATE TABLE temp1 ';
+         INSERT INTO temp1
+           ( SELECT * 
+             FROM store_sched_final_1 
+              WHERE begin_date <= v_datef
+                      AND end_date > v_datef );
+         EXECUTE IMMEDIATE ' TRUNCATE TABLE temp2 ';
+         INSERT INTO temp2
+           ( SELECT * 
+             FROM network_sched_final 
+              WHERE EFFECTIVE_BEGIN_DT <= v_datef
+                      AND end_date > v_datef
+                      AND sink_id LIKE 'M%' );
+         EXECUTE IMMEDIATE ' TRUNCATE TABLE temp3 ';
+         INSERT INTO temp3
+           ( SELECT * 
+             FROM network_sched_final 
+              WHERE EFFECTIVE_BEGIN_DT <= v_datef
+                      AND end_date > v_datef
+                      AND sink_id LIKE 'S%' );
+         v_col := 'WEEK' || CAST(v_count AS NVARCHAR2)|| '_UNITS_F' ;
+         UoD_Proc_Append_Weekly(v_col,
+                  v_count);
+         v_COUNT := v_COUNT + 1 ;
+      END;
+   END LOOP;
+END;
+
+
+--FUNCTION TO CALCULATE CLOSING INVENTORY
+
+CREATE OR REPLACE FUNCTION UoD_Function_EOD_Cal
+(
+  v_upc IN order_plan.upc%type,
+  v_storecode IN order_plan.storecode%type,
+  v_fdate IN order_plan.fdate%type,
+  v_ON_HAND IN order_plan.on_hand%type,
+  v_orders IN order_plan.orders%type,
+  v_upt IN order_plan.upt%type,
+  v_WASTE_PCT IN order_plan.waste_pct%type,
+  v_demand IN order_plan.demand%type,
+  v_life IN order_plan.life%type
+)
+RETURN FLOAT
+AS
+   v_ret FLOAT(53);
+   v_waste FLOAT(53);
+
+BEGIN
+   --CHECKING IF ANY UNITS ARE EXPECTED TO GET WASTED FOR THE ORDERS (SHELF LIFE) DAYS BACK
+   SELECT coalesc
+   INTO v_waste
+     FROM UoD_daily_store_orders 
+    WHERE upc = v_upc
+            AND storecode = v_storecode
+            AND upt = v_upt
+            AND fdate =   v_fdate - v_life + 1;
+    
+   --CALCULATING END OF THE DAY STOCK
+   v_ret := (v_ON_HAND + (v_orders * v_upt)) * (1 - COALESCE(v_WASTE_PCT, 0)) - coalesce(v_demand,0) - COALESCE(v_waste, 0) ;
+   
+   IF ( v_ret IS NULL ) THEN
+      v_ret := 0 ;
+   END IF;
+   IF v_ret < 0 THEN  
+      v_ret := 0 ;
+   END IF;
+   IF v_life = 1 THEN   
+      v_ret := 0 ;
+   END IF;
+   
+   RETURN v_ret;
+END;
+
+--calculates demand over shelf life
+CREATE OR REPLACE FUNCTION FUCT2
+(
+  v_storecode IN UoD_Daily_Demand.storecode%type,
+  v_upc IN UoD_Daily_Demand.upc%type,
+  v_date IN UoD_Daily_Demand.fdate%type,
+  v_LIFE IN UoD_Daily_Demand.life%type
+)
+RETURN FLOAT
+AS
+   v_ret FLOAT(53);
+
+BEGIN
+   SELECT SUM(demand) 
+
+     INTO v_ret
+     FROM UoD_Daily_Demand p
+    WHERE p.upc = v_upc
+            AND p.storecode = v_storecode
+            AND FDATE BETWEEN v_date AND v_date + v_LIFE - 1;
+   IF ( v_ret IS NULL ) THEN
+      v_ret := 0 ;
+   END IF;
+   RETURN v_ret;
+END;
+
+
+
+--FUNCTION FOR TARGET INVENTORY CALCULATION
+CREATE OR REPLACE FUNCTION UoD_Function_Target_inventory_cal
+(
+  v_storecode IN UoD_Daily_Demand.storecode%type,
+  v_upc IN UoD_Daily_Demand.upc%type,
+  v_date IN UoD_Daily_Demand.fdate%type,
+  v_model IN UoD_Daily_Demand.c1%type,
+  v_model1 IN UoD_Daily_Demand.c2%type
+)
+RETURN FLOAT
+AS
+   -- extra days of cover is generally an fraction , eg 3.5, ret stores extra days of cover for its integral part
+   --ret1 stores cover for decimal part
+   v_ret FLOAT(53);
+   v_ret1 FLOAT(53);
+
+BEGIN
+   SELECT SUM(demand) 
+
+     INTO v_ret
+     FROM UoD_Daily_Demand p
+    WHERE p.upc = v_upc
+            AND p.storecode = v_storecode
+            AND FDATE BETWEEN v_date AND v_date - 1 + v_model;
+   IF v_model1 <> 0 THEN
+   
+   BEGIN
+      SELECT SUM(demand) * v_model1 
+
+        INTO v_ret1
+        FROM UoD_Daily_Demand p
+       WHERE p.upc = v_upc
+               AND p.storecode = v_storecode
+               AND FDATE = v_date + v_model;
+   END;
+   END IF;
+   v_ret := COALESCE(v_ret, 0) + COALESCE(v_ret1, 0) ;
+   RETURN v_ret;
+END;
+
+
+--FUNCTION TO CALCULATE ORDERS FOR A STORE DAY COMBINATION
+
+CREATE OR REPLACE FUNCTION UoD_Function_Orders_cal
+(
+  iv_on_hand IN stock_temp.on_hand%type,
+  v_demand IN temp_table_11.demand%type,
+  v_margin IN temp_table_11.margin%type,
+  v_UPT IN upt_upc.upt%type,
+  v_date IN DATE,
+  v_CP IN temp_table_11.cp%type,
+  v_SP IN temp_table_11.sp%type,
+  v_launch_date IN temp_table_11.launch_date%type,
+  iv_WC IN temp_table_11.waste_constraint%type,
+  v_demand_l IN temp_table_11.demand_l%type,
+  v_target_inventory IN temp_table_11.target_inventory%type,
+  v_EXCESS IN temp_table_11.excess_flag%type
+)
+RETURN NUMBER
+AS
+   v_on_hand FLOAT(53) := iv_on_hand;
+   v_WC FLOAT(53) := iv_WC;
+   v_extra FLOAT(53);
+   v_flag NUMBER(10,0);
+   v_n3 NUMBER(10,0);
+   v_n1 NUMBER(10,0);
+   v_n2 NUMBER(10,0);
+   v_waste FLOAT(53);
+   v_profit FLOAT(53);
+   v_days float;
+
+BEGIN
+-- ORDERING TO PREVENT LOST SALES
+-- ORDER TRAYS IF ON_HAND < DEMAND < TARGET INVENTORY TO PREVENT LOST SALES. 
+   IF v_DEMAND > v_ON_HAND
+     AND v_ON_HAND < v_TARGET_INVENTORY
+     AND v_DEMAND <= v_TARGET_INVENTORY THEN
+   
+   BEGIN
+      v_N1 := FLOOR((v_DEMAND - v_ON_HAND) / v_UPT) ;
+      v_ON_HAND := v_ON_HAND + (v_N1 * v_UPT) ;
+   END;
+   END IF;
+-- ORDER TRAYS IF ON_HAND < TARGET INVENTORY < DEMAND TILL YOU REACH TARGET INVENTORY, NOT EXCEEDING IT COVERING PART OF LOST SALES
+   IF v_DEMAND > v_ON_HAND
+     AND v_ON_HAND < v_TARGET_INVENTORY
+     AND v_DEMAND > v_TARGET_INVENTORY THEN
+   
+   BEGIN
+      v_N1 := FLOOR((v_TARGET_INVENTORY - v_ON_HAND) / v_UPT) ;
+      v_ON_HAND := v_ON_HAND + (v_N1 * v_UPT) ;
+   END;
+   END IF;
+-- V_N1 INDICATES ANY TRAYS ORDERED IN ABOVE SCENARIOS TO COVER LOST SALES PARTIALLY
+   IF ( v_N1 IS NULL ) THEN
+   
+   BEGIN
+      v_N1 := 0 ;
+   END;
+   END IF;
+   
+ -- EITHER YOUR DEMAND IS FULFILLED OR YOU HAVE EXCEEDED TARGET INVENTORY STOP ORDERING FOR LOST SALES 
+ -- WE WILL ORDER TRAYS IF THEY ARE PROFITABLE OR EXCEEDING TARGET INVENTORY IS ALLOWED 
+   IF v_target_inventory <= v_ON_HAND
+     OR v_demand <= v_ON_HAND THEN
+   
+   BEGIN
+      v_N2 := 0 ;
+   END;
+   ELSE
+  -- ORDER 1 EXTRA TRAY IF ITS PROFITABLE / CAN BE SOLD OVER ITS SHELF LIFE ( DUE TO V_N1 WE CAN BE AT MOST 1 TRAY AWAY TO PREVENT ALL LOST SALES) 
+   BEGIN
+      v_extra := v_demand_l - v_ON_HAND ;
+      IF v_extra >= v_UPT THEN
+   -- ORDER 1 TRAY IF IT CAN BE SOLD COMPLETELY , I.E. NO WASTAGE   
+      BEGIN
+         v_N2 := 1 ;
+      END;
+      ELSE
+   --CALCULATE WASTED UNITS IF WE SEND EXTRA TRAY AND CALCULATE PROFITABILITY OF THE TRAY  
+      BEGIN
+         v_waste := v_UPT - v_extra ;
+         v_profit := v_extra * v_margin * v_SP - v_waste * v_CP ;
+         IF v_profit > 0 THEN
+    --IF TRAY IS PROFITABLE SEND IT ELSE CHECK IF UPC IS NEWLY LAUNCHED   
+         BEGIN
+            v_N2 := 1 ;
+         END;
+         ELSE
+         
+         BEGIN
+            IF v_launch_date IS NOT NULL THEN
+        -- IF UPC IS NEWLY LAUNCHED SEND 1 TRAY  ELSE CHECK IF IT IS NOT BREACHING WASTE CONSTRAINT  
+            BEGIN
+               v_days := v_date - v_launch_date ;
+               IF v_days <= 21 THEN
+               
+               BEGIN
+                  v_N2 := 1 ;
+               END;
+               ELSE
+               
+               BEGIN
+                  IF v_WC IS NULL THEN
+                  
+                  BEGIN
+                     v_WC := 0 ;-- DEFAULT WASTE CONSTRAINT
+                  END;
+                  END IF;
+                  IF v_waste <= v_WC * v_UPT THEN
+                  --SENDING ONE TRAY IF WASTE CONSTRAINT IS NOT BREACHED
+                  BEGIN
+                     v_N2 := 1 ;
+                  END;
+                  ELSE
+                  
+                  BEGIN
+                     v_N2 := 0 ;
+                  END;
+                  END IF;
+               END;
+               END IF;
+            END;
+            ELSE
+            
+            BEGIN
+               IF v_WC IS NULL THEN
+               
+               BEGIN
+                  v_WC := 0 ;
+               END;
+               END IF;
+               IF v_waste <= v_WC * v_UPT THEN
+               
+               BEGIN
+                  v_N2 := 1 ;
+               END;
+               ELSE
+               
+               BEGIN
+                  v_N2 := 0 ;
+               END;
+               END IF;
+            END;
+            END IF;
+         END;
+         END IF;
+      END;
+      END IF;
+   END;
+   END IF;
+   
+   --AT THIS POINT WE HAVE ORDERED TO PREVENT LOST SALES IF TRAYS ARE PROFITABLE
+   IF ( v_N2 IS NULL ) THEN
+   
+   BEGIN
+      v_N2 := 0 ;
+   END;
+   END IF;
+   --UPDATED ON HAND STOCK INCLUDING ORDERS TO PREVENT LOST SALES
+   v_ON_HAND := v_ON_HAND + (v_N2 * v_UPT) ;
+   
+   --ORDERING TO ENSURE TARGET INVENTORY IF WE HAVE NOT EXCEEDED TARGET INVENTORY YET
+   IF v_target_inventory > v_on_hand THEN
+   
+   BEGIN
+      v_n3 := FLOOR((v_target_inventory - v_on_hand) / v_UPT) ;
+      v_ON_HAND := v_ON_HAND + (v_N3 * v_UPT) ;
+	  -- EXCEEDING TARGET INVENTORY BY 1 TRAY IF IT IS ALLOWED, EXCESS FLAG SET TO 'Y' AND IT CAN BE SOLD OVER ITS SHELF LIFE
+      IF v_EXCESS = 'Y'
+        AND v_target_inventory > v_on_hand THEN
+      
+      BEGIN
+         IF v_demand_l - v_ON_HAND >= v_UPT THEN
+         
+         BEGIN
+            v_flag := 1 ;
+         END;
+         ELSE
+         
+         BEGIN
+            v_flag := 0 ;
+         END;
+         END IF;
+      END;
+      ELSE
+      
+      BEGIN
+         v_flag := 0 ;
+      END;
+      END IF;
+   END;
+   ELSE
+   
+   BEGIN
+      v_n3 := 0 ;
+      v_flag := 0 ;
+   END;
+   END IF;
+   -- RETURNING TOTAL TRAYS TO BE ORDERED
+   v_flag := v_flag + v_n3 + v_N2 + v_N1 ;
+   RETURN v_flag;
+END;
+
+
+---------------------------------------------
+
+--PROCEDURE TO GENERATE ORDER PLAN FOR FIRST DAY
+create or replace procedure UoD_Proc_Order_plan_Generation_1st_day
+( v_date in date)
+as
+ begin
+--subset data for a day AND CALCULATE TARGET INVENTORY--TAKES 1.5-2 MINUTES
+execute immediate 'truncate table temp_table_11';
+insert into temp_table_11
+select A.upc,a.storecode,a.depot,a.demand,a.fdate,a.stg,a.model_code,a.c1,a.c2,a.c3,a.sp,a.cp,a.margin,
+ a.waste_pct,a.waste_constraint,a.launch_date,a.excess_flag,a.life,a.flag1,a.flag2, ((case model_code
+when 'COM' then maximum ( (c3*demand) , (UoD_Function_Target_inventory_cal(storecode, a.upc, fdate ,c1, c2)))
+when 'MUL' then c3*demand
+when 'DOS' then UoD_Function_Target_inventory_cal(storecode, a.upc, fdate ,c1, c2)
+else 0
+end ) * COALESCE (1 + c.TOTAL_UPLIFT,1)) as target_inventory ,
+UoD_Function_Demand_over_shelf_life_cal( storecode,a.upc,  fdate,life) as demand_l
+from UoD_Daily_Demand  A 
+LEFT JOIN nde_final  c
+ON A.UPC = c.PRODUCT_ID AND A.STORECODE= SUBSTR (c.location_id, 2, 8) AND A.FDATE = c.UPLIFT_DT 
+where A.fdate = v_date; 
+
+--CALCULATE ORDERS AND JOIN PERMISSIBLE UPT, PREVIOUS DAY EOD STOCK FOR EACH UPC
+execute immediate 'truncate table ORDER_PLAN';
+INSERT INTO ORDER_PLAN
+select  z.* , c.upt , COALESCE(D.on_hand, 0) , case when (coalesce (flag1,1) + coalesce (flag2,1)) = 2 then
+UoD_Function_Orders_cal ( COALESCE ( D . on_hand , 0 ) , demand , margin , c . upt , v_date , cp , sp , 
+launch_date , waste_constraint , demand_l , target_inventory , EXCESS_FLAG ) else 0  end as orders
+FROM temp_table_11 Z LEFT JOIN upt_upc c ON z.upc = c.upc LEFT JOIN stock_temp D ON z.UPC = D.upc AND z.storecode = D.storecode AND z.fdate =  (1 + D.opdate)  AND D.upt = c.upt ;
+ 
+--CALCULATE CLOSING INVENTORY FOR UPC-STORE-UPT VALUES FOR WHICH ORDER PLAN WAS GENERATED ON THE DAY SPECIFIED 
+INSERT INTO STOCK_TEMP
+  ( SELECT UPC ,
+           STORECODE ,
+           UPT ,
+           (case when(((ON_HAND + (orders * upt)) * (1 - COALESCE(WASTE_PCT, 0)) - coalesce(demand,0)- coalesce(fuct4_new(upc,storecode,fdate,upt,life),0))<0) then 0
+           else ((ON_HAND + (orders * upt)) * (1 - COALESCE(WASTE_PCT, 0)) - coalesce(demand,0)- coalesce(fuct4_new(upc,storecode,fdate,upt,life),0)) end ) as on_hand,
+           waste_pct ,
+           v_date
+    FROM ORDER_PLAN 
+     WHERE FDATE = v_date);
+     
+     --CALCULATING SOLD UNITS, WASTE AND STORING IT IN MASTER TABLE  
+insert into UoD_daily_store_orders 
+(select UPC, storecode,depot, demand, fdate, demand_l, on_hand, orders, upt,
+case when orders = 0 then 0 else (case when (Orders*upt+ON_HAND-DEMAND_L) > 0 then ((Orders*upt)+ON_HAND-DEMAND_L) else 0 end) end as waste,
+case when (orders*upt+ON_HAND-demand) < 0 then 0 else 1 end as Availability_flag,
+case when (orders*upt+ON_HAND-demand) < 0 then (orders*upt+ON_HAND) else demand end as Sold_Units from 
+order_plan where fdate= v_date);
+END;
+
+
+--FUNCTION TO RETURN MAXIMUM NUMBER
+CREATE OR REPLACE FUNCTION maximum 
+(
+  v_ti1 IN float,
+  v_ti2 IN float  
+)
+RETURN FLOAT
+AS
+  v_ret FLOAT(53);
+BEGIN   
+   IF v_ti1 > v_ti2 THEN   
+   v_ret := v_ti1;
+   else
+   v_ret := v_ti2; 
+   END IF;
+   RETURN v_ret;
+END;
+
+
+
+--PROCEDURE TO GENERATE ORDER PLAN , THIS IS CALLED SQUENTIALLY FOR N DAYS 
+create or replace procedure UoD_Proc_Order_plan_Generation_day_wise
+( v_date in date)
+as
+ begin
+--subset data for a day AND CALCULATE TARGET INVENTORY
+execute immediate 'truncate table temp_table_11';
+insert into temp_table_11
+select A.upc,a.storecode,a.depot,a.demand,a.fdate,a.stg,a.model_code,a.c1,a.c2,a.c3,a.sp,a.cp,a.margin,
+ a.waste_pct,a.waste_constraint,a.launch_date,a.excess_flag,a.life,a.flag1,a.flag2, ((case model_code
+when 'COM' then maximum ( (c3*demand) , (UoD_Function_Target_inventory_cal(storecode, a.upc, fdate ,c1, c2)))
+when 'MUL' then c3*demand
+when 'DOS' then UoD_Function_Target_inventory_cal(storecode, a.upc, fdate ,c1, c2)
+else 0
+end ) * COALESCE (1 + c.TOTAL_UPLIFT,1)) as target_inventory ,
+UoD_Function_Demand_over_shelf_life_cal( storecode,a.upc,  fdate,life) as demand_l
+from UoD_Daily_Demand  A 
+LEFT JOIN nde_final  c
+ON A.UPC = c.PRODUCT_ID AND A.STORECODE= SUBSTR (c.location_id, 2, 8) AND A.FDATE = c.UPLIFT_DT 
+where A.fdate = v_date; 
+
+  
+--CALCULATE ORDERS AND JOIN PREVIOUS DAY EOD STOCK FOR EACH UPC
+execute immediate 'truncate table ORDER_PLAN';
+INSERT INTO ORDER_PLAN
+select  z.* , d.upt ,d.on_hand,  case when (coalesce (flag1,1) + coalesce (flag2,1)) = 2 then
+UoD_Function_Orders_cal (  D.on_hand  , demand , margin ,  d. upt , v_date , cp , sp , 
+launch_date , waste_constraint , demand_l , target_inventory , EXCESS_FLAG ) else 0 end as orders
+FROM temp_table_11 Z LEFT JOIN stock_temp D ON z.UPC = D.upc AND z.storecode = D.storecode AND z.fdate =  (1 + D.opdate) ;
+  
+--CALCULATE CLOSING INVENTORY FOR UPC-STORE-UPT VALUES FOR WHICH ORDER PLAN WAS GENERATED ON THE DAY SPECIFIED 
+INSERT INTO STOCK_TEMP
+  ( SELECT UPC ,
+           STORECODE ,
+           UPT ,
+           (case when(((ON_HAND + (orders * upt)) * (1 - COALESCE(WASTE_PCT, 0)) - coalesce(demand,0)- coalesce(fuct4_new(upc,storecode,fdate,upt,life),0))<0) then 0
+           else ((ON_HAND + (orders * upt)) * (1 - COALESCE(WASTE_PCT, 0)) - coalesce(demand,0)- coalesce(fuct4_new(upc,storecode,fdate,upt,life),0)) end ) as on_hand,
+           waste_pct ,
+           v_date 
+    FROM ORDER_PLAN 
+     WHERE FDATE = v_DATE );
+ --CALCULATING SOLD UNITS, WASTE AND STORING IT IN MASTER TABLE   
+  insert into UoD_daily_store_orders 
+(select UPC, storecode,depot, demand, fdate, demand_l, on_hand, orders, upt,
+case when orders = 0 then 0 else (case when (Orders*upt+ON_HAND-DEMAND_L) > 0 then ((Orders*upt)+ON_HAND-DEMAND_L) else 0 end) end as waste,
+case when (orders*upt+ON_HAND-demand) < 0 then 0 else 1 end as Availability_flag,
+case when (orders*upt+ON_HAND-demand) < 0 then (orders*upt+ON_HAND) else demand end as Sold_Units from 
+order_plan where fdate= v_date);
+END;
+
+--PROCEDURE TO RUN ORDER PLAN FOR SPECIFIED NUMBER OF DAYS
+CREATE OR REPLACE PROCEDURE UoD_Proc_Order_plan_Generation_date_add
+( v_date_start in date, v_date_end in date)
+AS
+BEGIN
+   WHILE v_date_start < v_date_end
+   LOOP 
+      
+      BEGIN
+         UoD_Proc_Order_plan_Generation_day_wise(v_date);
+         v_date := 1+ v_date ;
+         DELETE stock_temp
+
+          WHERE opdate =  v_date - 2;
+      END;
+   END LOOP;
+   commit;
+   commit work;
+END;
+
+
+   Enter file contents here
