@@ -1,0 +1,2020 @@
+
+----TRANSFORMATION OF INVENTORY MODEL DATA
+--inserting raw values from inventory model dataset into table where components of Target inventory models are calculated--
+INSERT INTO ti_model
+  ( SELECT * ,
+           NULL ,
+           NULL ,
+           NULL 
+    FROM inventory_model  );
+
+
+
+--updating table to add components of target inventory model--	
+UPDATE ti_model
+   SET Model = (CASE SUBSTR(MODEL_ID, 1, 3)
+                                           WHEN 'WOS' THEN 'DOS'
+       ELSE SUBSTR(MODEL_ID, 1, 3)
+          END);
+
+		  
+UPDATE ti_model
+   SET day_full = (CASE SUBSTR(MODEL_ID, 1, 3)
+                                              WHEN 'COM' THEN CAST(SUBSTR(MODEL_ID, 7, 1) AS NUMBER(10,0))
+                                              WHEN 'DOS' THEN CAST(SUBSTR(MODEL_ID, 4, 1) AS NUMBER(10,0))
+                                              WHEN 'WOS' THEN CAST(FLOOR((CAST(SUBSTR(MODEL_ID, 4, 8) AS FLOAT(53))) * 7) AS NUMBER(10,0))
+       ELSE 0
+          END);
+UPDATE ti_model
+   SET day_part = (CASE SUBSTR(MODEL_ID, 1, 3)
+                                              WHEN 'COM' THEN CAST(SUBSTR(MODEL_ID, 8, 2) AS FLOAT(53)) / 100
+                                              WHEN 'DOS' THEN CAST(SUBSTR(MODEL_ID, 5, 2) AS FLOAT(53)) / 100
+                                              WHEN 'WOS' THEN (CAST(SUBSTR(MODEL_ID, 4, 8) AS FLOAT(53)) * 7) - day_full
+       ELSE 0
+          END);
+UPDATE ti_model
+   SET mult = (CASE SUBSTR(MODEL_ID, 1, 3)
+                                          WHEN 'COM' THEN CAST(SUBSTR(MODEL_ID, 4, 3) AS FLOAT(53)) / 100
+                                          WHEN 'MUL' THEN CAST(SUBSTR(MODEL_ID, 5, 3) AS FLOAT(53)) / 100
+       ELSE 0
+          END);
+
+
+
+----TRANSFORMATION OF NETWORK SCHEDULE DATA
+
+--deleting entries from raw network schedule file where depot field is null
+DELETE network_schedule
+ WHERE depot IS NULL;
+
+ --inserting raw network schedule data and field for lead time and upt--
+INSERT INTO network_schedule_updated
+  ( SELECT * ,
+           NULL ,
+           NULL ,
+           NULL ,
+           NULL ,
+           NULL ,
+           NULL ,
+           NULL ,
+           NULL ,
+           NULL ,
+           NULL ,
+           NULL ,
+           NULL ,
+           NULL ,
+           NULL 
+    FROM network_schedule  );
+
+
+
+	--extracting the lead time and UPT
+UPDATE network_schedule_updated
+   SET sun_order_lead_time = SUBSTR(sun_rcpt, 1, 1),
+       sun_upt = RTRIM(SUBSTR(sun_rcpt, 9, 2)),
+       mon_order_lead_time = SUBSTR(mon_rcpt, 1, 1),
+       mon_upt = RTRIM(SUBSTR(mon_rcpt, 9, 2)),
+       tue_order_lead_time = SUBSTR(tue_rcpt, 1, 1),
+       tue_upt = RTRIM(SUBSTR(tue_rcpt, 9, 2)),
+       wed_order_lead_time = SUBSTR(wed_rcpt, 1, 1),
+       wed_upt = RTRIM(SUBSTR(wed_rcpt, 9, 2)),
+       thu_order_lead_time = SUBSTR(thu_rcpt, 1, 1),
+       thu_upt = RTRIM(SUBSTR(thu_rcpt, 9, 2)),
+       fri_order_lead_time = SUBSTR(fri_rcpt, 1, 1),
+       fri_upt = RTRIM(SUBSTR(fri_rcpt, 9, 2)),
+       sat_order_lead_time = SUBSTR(sat_rcpt, 1, 1),
+       sat_upt = RTRIM(SUBSTR(sat_rcpt, 9, 2));
+
+
+
+	   --inserting cleaned order lead time and upt into temporary network schedule table--  
+INSERT INTO network_sched_1
+  ( SELECT product_id ,
+           depot ,
+           Effective_begin_dt ,
+           MAX(sun_order_lead_time) ,
+           MAX(sun_upt) ,
+           MAX(mon_order_lead_time) ,
+           MAX(mon_upt) ,
+           MAX(tue_order_lead_time) ,
+           MAX(tue_upt) ,
+           MAX(wed_order_lead_time) ,
+           MAX(wed_upt) ,
+           MAX(thu_order_lead_time) ,
+           MAX(thu_upt) ,
+           MAX(fri_order_lead_time) ,
+           MAX(fri_upt) ,
+           MAX(sat_order_lead_time) ,
+           MAX(sat_upt) 
+    FROM network_schedule_updated 
+      GROUP BY product_id,depot,Effective_begin_dt );
+
+
+--inserting upt and delivery flags and ranking the network schedule for a upc by effective begin date--
+INSERT INTO network_sched_2
+  SELECT product_id ,
+         sink_id ,
+         effective_begin_dt ,
+         sun ,
+         sun_upt ,
+         mon ,
+         mon_upt ,
+         tue ,
+         tue_upt ,
+         wed ,
+         wed_upt ,
+         thu ,
+         thu_upt ,
+         fri ,
+         fri_upt ,
+         sat ,
+         sat_upt ,
+         RANK() OVER ( PARTITION BY product_id ORDER BY EFFECTIVE_BEGIN_DT ASC  ) 
+    FROM network_sched_1 ;
+
+
+--calculating effective begin and end date by joining 2 temporary tables--
+INSERT INTO network_sched_3
+  ( SELECT a.* ,
+           b.EFFECTIVE_BEGIN_DT 
+    FROM network_sched_2 a
+           LEFT JOIN network_sched_2 b
+            ON a.product_id = b.product_id
+           AND a.sink_id = b.sink_id
+           AND a.rank_date = (b.rank_date - 1) );
+
+
+
+--updating temporary network schedule table to set default date for null records--
+UPDATE network_sched_3
+   SET end_date = '2017-12-31'
+   WHERE end_date IS NULL;
+   
+UPDATE network_sched_3
+   SET end_date = end_date - 1;
+
+
+
+--inserting upt and delivery flags across day of week at upc depot level with begin and end dates--  
+INSERT INTO network_sched_final
+  ( SELECT Product_id ,
+           sink_id ,
+           EFFECTIVE_BEGIN_DT ,
+           sun ,
+           sun_upt ,
+           end_date ,
+           1 
+    FROM network_sched_3 
+    UNION 
+    SELECT Product_id ,
+           sink_id ,
+           EFFECTIVE_BEGIN_DT ,
+           mon ,
+           mon_upt ,
+           end_date ,
+           2 
+    FROM network_sched_3 
+    UNION ALL 
+    SELECT Product_id ,
+           sink_id ,
+           EFFECTIVE_BEGIN_DT ,
+           tue ,
+           tue_upt ,
+           end_date ,
+           3 
+    FROM network_sched_3 
+    UNION ALL 
+    SELECT Product_id ,
+           sink_id ,
+           EFFECTIVE_BEGIN_DT ,
+           wed ,
+           wed_upt ,
+           end_date ,
+           4 
+    FROM network_sched_3 
+    UNION ALL 
+    SELECT Product_id ,
+           sink_id ,
+           EFFECTIVE_BEGIN_DT ,
+           thu ,
+           thu_upt ,
+           end_date ,
+           5 
+    FROM network_sched_3 
+    UNION ALL 
+    SELECT Product_id ,
+           sink_id ,
+           EFFECTIVE_BEGIN_DT ,
+           fri ,
+           fri_upt ,
+           end_date ,
+           6 
+    FROM network_sched_3 
+    UNION ALL 
+    SELECT Product_id ,
+           sink_id ,
+           EFFECTIVE_BEGIN_DT ,
+           sat ,
+           sat_upt ,
+           end_date ,
+           7 
+    FROM network_sched_3  );
+
+
+
+	--setting consistent values for order lead time
+UPDATE network_sched_final
+   SET rcpt = 1
+   WHERE rcpt IS NOT NULL;
+UPDATE network_sched_final
+   SET rcpt = 0
+   WHERE rcpt IS NULL;
+
+
+   --Transposing raw DOW file from UPC-stg from raw file to  UPC-stg-day of week level--
+INSERT INTO dow1
+  ( SELECT product_id ,
+           stg ,
+           1 dow  ,
+           sun profile  
+    FROM dow 
+    UNION 
+    SELECT product_id ,
+           stg ,
+           2 dow  ,
+           mon profile  
+    FROM dow 
+    UNION ALL 
+    SELECT product_id ,
+           stg ,
+           3 dow  ,
+           tue profile  
+    FROM dow 
+    UNION ALL 
+    SELECT product_id ,
+           stg ,
+           4 dow  ,
+           wed profile  
+    FROM dow 
+    UNION ALL 
+    SELECT product_id ,
+           stg ,
+           5 dow  ,
+           thu profile  
+    FROM dow 
+    UNION ALL 
+    SELECT product_id ,
+           stg ,
+           6 dow  ,
+           fri profile  
+    FROM dow 
+    UNION ALL 
+    SELECT product_id ,
+           stg ,
+           7 dow  ,
+           sat profile  
+    FROM dow  );
+
+
+----TRANSFORMATION OF LIFE DATA
+
+--transposing raw life data from upc-store to upc-store-day of week level converting night life to shelf life--
+INSERT INTO productlife1
+  ( SELECT Product_id ,
+           CAST(SUBSTR(location_id, 2, 8) AS NUMBER(10,0)) ,
+           1 ,
+           life_sun + 1 
+    FROM productlife 
+    UNION 
+    SELECT Product_id ,
+           CAST(SUBSTR(location_id, 2, 8) AS NUMBER(10,0)) ,
+           2 ,
+           life_mon + 1 
+    FROM productlife 
+    UNION ALL 
+    SELECT Product_id ,
+           CAST(SUBSTR(location_id, 2, 8) AS NUMBER(10,0)) ,
+           3 ,
+           life_tue + 1 
+    FROM productlife 
+    UNION ALL 
+    SELECT Product_id ,
+           CAST(SUBSTR(location_id, 2, 8) AS NUMBER(10,0)) ,
+           4 ,
+           life_wed + 1 
+    FROM productlife 
+    UNION ALL 
+    SELECT Product_id ,
+           CAST(SUBSTR(location_id, 2, 8) AS NUMBER(10,0)) ,
+           5 ,
+           life_thu + 1 
+    FROM productlife 
+    UNION ALL 
+    SELECT Product_id ,
+           CAST(SUBSTR(location_id, 2, 8) AS NUMBER(10,0)) ,
+           6 ,
+           life_fri + 1 
+    FROM productlife 
+    UNION ALL 
+    SELECT Product_id ,
+           CAST(SUBSTR(location_id, 2, 8) AS NUMBER(10,0)) ,
+           7 ,
+           life_sat + 1 
+    FROM productlife  );
+
+
+-------TRANSFORMATION OF STORE SCHEDULE DATA
+
+--removing store schedule for depots--
+DELETE location_schedule
+ WHERE location_id LIKE 'W%';
+
+
+ --inserting location schedule raw data with location id substringed to required format--
+INSERT INTO location_sched_1
+  ( SELECT CAST(SUBSTR(location_id, 2, 8) AS NUMBER(10,0)) ,
+           start_dt ,
+           sun_delivery_ind ,
+           mon_delivery_ind ,
+           tue_delivery_ind ,
+           wed_delivery_ind ,
+           thu_delivery_ind ,
+           fri_delivery_ind ,
+           sat_delivery_ind 
+    FROM location_schedULE  );
+
+
+--inserting store schedule ranked on begin date--
+INSERT INTO location_sched_2
+  SELECT storecode ,
+         begin_date ,
+         sun ,
+         mon ,
+         tue ,
+         wed ,
+         thu ,
+         fri ,
+         sat ,
+         RANK() OVER ( PARTITION BY storecode ORDER BY BEGIN_Date ASC  ) 
+    FROM location_sched_1 ;
+
+--calculating end date by joining on date rank with previous temporary table--
+INSERT INTO location_sched_3
+  ( SELECT a.* ,
+           b.BEGIN_Date 
+    FROM location_sched_2 a
+           LEFT JOIN location_sched_2 b
+            ON a.storecode = b.storecode
+           AND a.date_rank = (b.date_rank - 1) );
+
+--setting end date as default value for null records--
+UPDATE location_sched_3
+   SET end_date = '2017-12-31'
+   WHERE end_date IS NULL;
+   
+UPDATE location_sched_3
+   SET end_date = end_date - 1;
+
+
+--transposing store schedule from upc-store to upc-store-day level--
+INSERT INTO STORE_SCHEDULE_FINAL_1
+  ( SELECT storecode ,
+           begin_date ,
+           sun ,
+           1 ,
+           date_rank ,
+           end_date 
+    FROM location_sched_3 
+    UNION 
+    SELECT storecode ,
+           begin_date ,
+           mon ,
+           2 ,
+           date_rank ,
+           end_date 
+    FROM location_sched_3 
+    UNION ALL 
+    SELECT storecode ,
+           begin_date ,
+           tue ,
+           3 ,
+           date_rank ,
+           end_date 
+    FROM location_sched_3 
+    UNION ALL 
+    SELECT storecode ,
+           begin_date ,
+           wed ,
+           4 ,
+           date_rank ,
+           end_date 
+    FROM location_sched_3 
+    UNION ALL 
+    SELECT storecode ,
+           begin_date ,
+           thu ,
+           5 ,
+           date_rank ,
+           end_date 
+    FROM location_sched_3 
+    UNION ALL 
+    SELECT storecode ,
+           begin_date ,
+           fri ,
+           6 ,
+           date_rank ,
+           end_date 
+    FROM location_sched_3 
+    UNION ALL 
+    SELECT storecode ,
+           begin_date ,
+           sat ,
+           7 ,
+           date_rank ,
+           end_date 
+    FROM location_sched_3  );
+UPDATE STORE_SCHEDULE_FINAL_1
+   SET day_schedule = 1
+   WHERE day_schedule = 'Y';
+UPDATE STORE_SCHEDULE_FINAL_1
+   SET day_schedule = 0
+   WHERE day_schedule = 'N';
+
+
+-------TRANSFORMATION OF STORE EXCESS FLAG
+
+--filtering store excess flag data only for stores--
+DELETE store_excess_flag
+ WHERE location_id NOT LIKE 'S%';
+
+
+
+
+
+
+
+------------MAXIMUM PERMISSIBLE CALCULATIONS--------------
+
+
+--extraction of dimensions for required category from dimension dump
+INSERT INTO prod_dim_all
+  ( SELECT upc ,
+           'Category' category  ,
+           NAME ,
+           width ,
+           height ,
+           depth ,
+           tray_width ,
+           tray_height ,
+           tray_depth ,
+           0 unit_weight  ,
+           0 unit_cost  ,
+           NULL is_srp  ,
+           NULL srp_total  
+    FROM Product_dimensions_dump 
+     WHERE upc IN ( SELECT DISTINCT upc 
+                    FROM forecast  )
+   );
+
+--deleting UPCs with mising dimension(s)
+DELETE prod_dim_all
+ WHERE width * height * depth <= 0;
+
+
+--TREATING INCORRECT VALUES FOR SRPs
+
+UPDATE prod_dim_all
+   SET is_srp = 'Yes'
+   WHERE srp_height > 0
+  OR srp_width > 0
+  OR srp_depth > 0;
+UPDATE prod_dim_all
+   SET is_srp = 'No'
+   WHERE is_srp IS NULL;
+UPDATE prod_dim_all
+   SET srp_height = height
+   WHERE height > srp_height
+  AND is_srp = 'Yes';
+UPDATE prod_dim_all
+   SET srp_width = width
+   WHERE width > srp_width
+  AND is_srp = 'Yes';
+UPDATE prod_dim_all
+   SET srp_depth = depth
+   WHERE depth > srp_depth
+  AND is_srp = 'Yes';
+UPDATE prod_dim_all
+   SET srp_total = (FLOOR(srp_width / width) * FLOOR(srp_depth / depth) * FLOOR(srp_height / height))
+   WHERE is_srp = 'Yes';
+UPDATE prod_dim_all
+   SET srp_total = 1
+   WHERE is_srp = 'No';
+   
+ --GETTING TRAY DIMENSIONS FROM IDS TABLE  
+   INSERT INTO DIM_TRAY
+  ( SELECT TRAY_TYPE ,
+           TRAY_WIDTH ,
+           TRAY_DEPTH ,
+           TRAY_HEIGHT ,
+           MAX_WEIGHT ,
+           MAX_COST 
+    FROM tray  );
+	
+-- CALCULATION OF POSSIBLE UPT BASED ON DIFFERENT ORIENTATIONS AND CALCULATING THE MAXIMUM
+INSERT INTO DIM_UPT
+  ( SELECT UPC ,
+           PROD_DESCRIPTION ,
+           category ,
+           WIDTH ,
+           HEIGHT ,
+           DEPTH ,
+           SRP_WIDTH ,
+           SRP_HEIGHT ,
+           SRP_DEPTH ,
+           srp_total ,
+           TRAY_TYPE ,
+           TRAY_WIDTH ,
+           TRAY_HEIGHT ,
+           TRAY_DEPTH ,
+           MAX_WEIGHT ,
+           MAX_COST ,
+           Is_srp ,
+           NULL ,
+           NULL ,
+           NULL ,
+           NULL ,
+           NULL ,
+           NULL ,
+           NULL ,
+           NULL ,
+           NULL ,
+           NULL 
+    FROM ( SELECT * 
+           FROM prod_dim_all 
+                  CROSS JOIN DIM_TRAY  ) A );
+
+				  
+				  
+DELETE dim_upt
+ WHERE width IS NULL;
+ 
+DELETE dim_upt
+ WHERE depth IS NULL;
+
+ DELETE dim_upt
+ WHERE height IS NULL;
+
+ UPDATE dim_upt
+   SET Width = (CASE 
+                     WHEN is_srp = 'Yes' THEN SRP_Width
+       ELSE width
+          END);
+UPDATE dim_upt
+   SET depth = (CASE 
+                     WHEN is_srp = 'Yes' THEN SRP_depth
+       ELSE depth
+          END);
+UPDATE dim_upt
+   SET height = (CASE 
+                      WHEN is_srp = 'Yes' THEN SRP_height
+       ELSE height
+          END);
+UPDATE DIM_UPT
+   SET UPT1 = (FLOOR(TRAY_WIDTH / WIDTH) * FLOOR(TRAY_HEIGHT / HEIGHT) * FLOOR(TRAY_DEPTH / DEPTH));
+UPDATE DIM_UPT
+   SET UPT6 = (FLOOR(TRAY_WIDTH / DEPTH) * FLOOR(TRAY_HEIGHT / HEIGHT) * FLOOR(TRAY_DEPTH / WIDTH));
+
+UPDATE DIM_UPT 
+SET UPT = maximun_upt (UPT1,UPT6);
+
+
+UPDATE DIM_UPT
+   SET REDWID = (CASE 
+                      WHEN upt_initial = UPT1 THEN TRAY_WIDTH - FLOOR(TRAY_WIDTH / WIDTH) * WIDTH--Finding reduced dimensions after easy fit
+
+                      WHEN upt_initial = UPT6 THEN TRAY_WIDTH - FLOOR(TRAY_WIDTH / DEPTH) * DEPTH
+       ELSE 0
+          END);
+UPDATE DIM_UPT
+   SET REDHGT = (CASE 
+                      WHEN upt_initial = UPT1 THEN TRAY_HEIGHT - FLOOR(TRAY_HEIGHT / HEIGHT) * HEIGHT
+                      WHEN upt_initial = UPT6 THEN TRAY_HEIGHT - FLOOR(TRAY_HEIGHT / HEIGHT) * HEIGHT
+       ELSE 0
+          END);
+UPDATE DIM_UPT
+   SET REDDEP = (CASE 
+                      WHEN upt_initial = UPT1 THEN TRAY_DEPTH - FLOOR(TRAY_DEPTH / DEPTH) * DEPTH
+                      WHEN upt_initial = UPT6 THEN TRAY_DEPTH - FLOOR(TRAY_DEPTH / WIDTH) * WIDTH
+       ELSE 0
+          END);
+UPDATE DIM_UPT
+   SET UPT1 = FLOOR(REDWID / WIDTH) * FLOOR(TRAY_HEIGHT / HEIGHT) * FLOOR(TRAY_DEPTH / DEPTH);
+UPDATE DIM_UPT
+   SET UPT6 = FLOOR(REDWID / DEPTH) * FLOOR(TRAY_HEIGHT / HEIGHT) * FLOOR(TRAY_DEPTH / WIDTH);
+
+   
+ UPDATE DIM_UPT
+                SET UPT_WIDTH= maximum_upt (UPT1,UPT6);
+				
+				
+UPDATE DIM_UPT
+   SET REDWID = (CASE 
+                      WHEN UPT_WIDTH = 0 THEN TRAY_WIDTH--calculation of reduced width based on number of items fitting in mpty space parallel to depth
+
+       ELSE TRAY_WIDTH - REDWID
+          END);
+UPDATE DIM_UPT
+   SET UPT1 = FLOOR(REDWID / WIDTH) * FLOOR(TRAY_HEIGHT / HEIGHT) * FLOOR(REDDEP / DEPTH);
+UPDATE DIM_UPT
+   SET UPT6 = FLOOR(REDWID / DEPTH) * FLOOR(TRAY_HEIGHT / HEIGHT) * FLOOR(REDDEP / WIDTH);
+
+   
+   UPDATE DIM_UPT
+                SET UPT_DEPTH=maximum_upt (UPT1,UPT6)
+				
+				
+UPDATE DIM_UPT
+   SET REDDEP = TRAY_DEPTH - REDDEP;
+UPDATE DIM_UPT
+   SET REDWID = TRAY_WIDTH - REDWID;
+UPDATE DIM_UPT
+   SET UPT1 = FLOOR(REDWID / WIDTH) * FLOOR(REDHGT / HEIGHT) * FLOOR(REDDEP / DEPTH);
+UPDATE DIM_UPT
+   SET UPT6 = FLOOR(REDWID / DEPTH) * FLOOR(REDHGT / HEIGHT) * FLOOR(REDDEP / WIDTH);
+
+   
+ UPDATE DIM_UPT
+SET UPT_HEIGHT = maximum_upt (UPT1,UPT6)
+
+
+
+UPDATE DIM_UPT
+   SET UPT_MAX = UPT_INITIAL + UPT_WIDTH + UPT_DEPTH + UPT_HEIGHT;
+   
+  -- GETTING THE FINAL MATRIX FROM MAX PERMISSIBLE upt FOR DIFFERENT TRAY TYPE-HEIGHT COMBINATIONS 
+   INSERT INTO dim_upt_pivot
+  ( SELECT DISTINCT UPC ,
+                    PROD_DESCRIPTION ,
+                    category ,
+                    is_srp ,
+                    srp_total ,
+                    SUM(CASE Tray_height
+                                        WHEN 5.1 THEN UPT_MAX
+                        ELSE 0
+                           END) Max_Half_Nested_UPT  ,
+                    SUM(CASE Tray_height
+                                        WHEN 10.5 THEN UPT_MAX
+                        ELSE 0
+                           END) Max_Half_LOW_UPT  ,
+                    SUM(CASE Tray_height
+                                        WHEN 15.4 THEN UPT_MAX
+                        ELSE 0
+                           END) Max_Half_HIGH_UPT  ,
+                    SUM(CASE Tray_height
+                                        WHEN 5.9 THEN UPT_MAX
+                        ELSE 0
+                           END) Max_METRIC_Nested_UPT  ,
+                    SUM(CASE Tray_height
+                                        WHEN 11.4 THEN UPT_MAX
+                        ELSE 0
+                           END) Max_METRIC_LOW_UPT  ,
+                    SUM(CASE Tray_height
+                                        WHEN 17.2 THEN UPT_MAX / 2
+                        ELSE 0
+                           END) Max_METRIC_HIGH_UPT  ,
+                    SUM(CASE Tray_height
+                                        WHEN 17.2 THEN UPT_MAX / 2
+                        ELSE 0
+                           END) cardboard  ,
+                    SUM(CASE Tray_height
+                                        WHEN 16 THEN UPT_MAX
+                        ELSE 0
+                           END) brown_tray  ,
+                    NULL ,
+                    NULL ,
+                    NULL 
+    FROM DIM_UPT 
+      GROUP BY upc,PROD_DESCRIPTION,category,is_srp,srp_total );
+SELECT * 
+  FROM DIM_UPT_PIVOT ;
+
+   
+--CALCULATING MAX CURRENT UPT SEEN ACROSS DEPOTS FROM NETWORK SCHEDULE
+
+INSERT INTO current_upt
+  ( SELECT DISTINCT product_id ,
+                    MAX(upt) 
+    FROM network_sched_final 
+      GROUP BY product_id );
+	  
+--UPDATING CURRENT UPT IN TABLE CONTAINING MAXIMUM PERMISSIBLE UPT 	  
+MERGE INTO dim_upt_pivot 
+USING (SELECT * FROM /*dbo.*/current_upt) b 
+ON ( dim_upt_pivot.upc = b.upc )
+WHEN MATCHED THEN UPDATE SET current_upt = b.UPT;	
+
+--CALCULATING MAX UPT FEASIBLE BASED ON CURRENT UPT
+UPDATE dim_upt_pivot
+   SET MAX_UPT_FEASIBLE = (CASE 
+                    WHEN is_srp = 'Yes' THEN (CASE 
+                                                   WHEN ( Metric_7IN_MAX_UPT * srp_total < current_upt ) THEN CEIL(current_upt / srp_total)
+                    ELSE Metric_7IN_MAX_UPT
+                       END)
+                    WHEN is_srp = 'No' THEN (CASE 
+                                                  WHEN ( Metric_7IN_MAX_UPT < current_upt ) THEN current_UPT
+                    ELSE Metric_7IN_MAX_UPT
+                       END)
+       ELSE Metric_7IN_MAX_UPT
+          END);
+    
+ 
+UPDATE dim_upt_pivot
+   SET Metric_7IN_MAX_UPT = MAX_UPT_FEASIBLE;
+   
+ UPDATE dim_upt_pivot
+   SET Cardboard = MAX_UPT_FEASIBLE; 
+   
+   
+   
+   
+--GENERATING ALL UPT VALUES POSSIBLE FOR A UPC  
+BEGIN
+   UoD_Proc_Permissible_UPT();
+END;
+
+-- INSERTING VARIOUS UPTS ACROSS DEPOTS TO FIND MOST REPEATING UPT
+INSERT INTO network_sched_final_depot
+  ( SELECT Product_id ,
+           sink_id ,
+           EFFECTIVE_BEGIN_DT ,
+           sun ,
+           sun_upt ,
+           end_date ,
+           1 ,
+           rank_date 
+    FROM network_sched_3 
+    UNION 
+    SELECT Product_id ,
+           sink_id ,
+           EFFECTIVE_BEGIN_DT ,
+           mon ,
+           mon_upt ,
+           end_date ,
+           2 ,
+           rank_date 
+    FROM network_sched_3 
+    UNION ALL 
+    SELECT Product_id ,
+           sink_id ,
+           EFFECTIVE_BEGIN_DT ,
+           tue ,
+           tue_upt ,
+           end_date ,
+           3 ,
+           rank_date 
+    FROM network_sched_3 
+    UNION ALL 
+    SELECT Product_id ,
+           sink_id ,
+           EFFECTIVE_BEGIN_DT ,
+           wed ,
+           wed_upt ,
+           end_date ,
+           4 ,
+           rank_date 
+    FROM network_sched_3 
+    UNION ALL 
+    SELECT Product_id ,
+           sink_id ,
+           EFFECTIVE_BEGIN_DT ,
+           thu ,
+           thu_upt ,
+           end_date ,
+           5 ,
+           rank_date 
+    FROM network_sched_3 
+    UNION ALL 
+    SELECT Product_id ,
+           sink_id ,
+           EFFECTIVE_BEGIN_DT ,
+           fri ,
+           fri_upt ,
+           end_date ,
+           6 ,
+           rank_date 
+    FROM network_sched_3 
+    UNION ALL 
+    SELECT Product_id ,
+           sink_id ,
+           EFFECTIVE_BEGIN_DT ,
+           sat ,
+           sat_upt ,
+           end_date ,
+           7 ,
+           rank_date 
+    FROM network_sched_3  );
+	
+--COUNT OF REPEATITION OF UPT ACROSS DEPOTS
+
+INSERT INTO upt_upc_d
+  SELECT DISTINCT product_id ,
+                  sink_id ,
+                  upt ,
+                  COUNT(*) 
+    FROM network_sched_final_depot 
+   WHERE rank_date = 1
+    GROUP BY product_id,sink_id,upt
+    ORDER BY product_id;
+
+-- DELETING RECORDS WITH NULL UPTS 
+DELETE upt_upc_d
+WHERE upt IS NULL;	
+
+--RANKING UPT BASED ON NUMBER OF OCCURANCE IN A DEPOT
+INSERT INTO upt_upc_de
+  SELECT DISTINCT upc ,
+                  depot ,
+                  upt ,
+                  count_upt ,
+                  RANK() OVER ( PARTITION BY upc ORDER BY count_upt DESC  ) 
+    FROM upt_upc_d ;
+	
+--SELECTING MOST REPEATED UPT IN A DEPOT
+INSERT INTO upt_upc_depot
+  ( SELECT upc ,
+           depot ,
+           upt 
+    FROM upt_upc_de 
+	
+	WHERE rank_upt = 1 );
+	
+DELETE upt_upc_depot
+WHERE sink_id LIKE 'S%';
+
+update table upt_upc_depot
+set sink_id= substr(sink_id,8,5)
+
+--JOINING THE UPT LIST AND THE SRP UNITS FOR A UPC
+INSERT INTO upt_list
+  ( SELECT a.* ,
+           b.srp_total 
+    FROM upt_list2 a
+           LEFT JOIN prod_dim_all b
+            ON a.upc = b.upc );
+			
+--CONVERTING NUMBER OF SRPS TO NUMBER OF UNITS FOR SRPS
+UPDATE upt_list
+   SET upt = upt * srp;
+   
+ --INSERTING THE UPT ACROSS DEPOT TO PERMISSIBLE RANGE OF UPT
+INSERT INTO upt_list
+  ( SELECT upc ,
+           upt ,
+           NULL ,
+           NULL 
+    FROM upt_upc_depot  );
+DROP TABLE upt_upc; 
+
+--INSERTING DISTINCT UPTS FROM ABOVE TABLE - UPT_LIST
+INSERT INTO upt_upc
+  ( SELECT DISTINCT upc ,
+                    upt 
+    FROM upt_list  );
+	
+DELETE upt_upc
+WHERE upt = 1;
+
+DELETE upt_upc
+WHERE upt IS NULL;
+
+--UPC-SUPPLIER MAPPING
+INSERT INTO upc_vendor
+  ( SELECT DISTINCT product_id ,
+                    source_id 
+    FROM network_schedule  );
+	
+--SELECTING VENDOR SUPPLYING AT CURRENT UPT FROM CP DATA BASED ON VENDOR AND UPT MAPPING FOR A UPC
+INSERT INTO cost_new
+  ( SELECT c.upc ,
+           c.vendor ,
+           c.CP_Start_date ,
+           c.cp ,
+           D.upt ,
+           c.upt ,
+           c.source_id 
+    FROM ( SELECT a.upc ,
+                  a.vendor ,
+                  a.upt ,
+                  b.source_id ,
+                  a.CP_Start_date ,
+                  a.cp 
+           FROM cp_latest a
+                  LEFT JOIN upc_vendor b
+                   ON a.upc = b.upc
+                  AND SUBSTR(a.vendor, 3, 4) = SUBSTR(b.source_id, 2, 4) ) c
+           LEFT JOIN upt_current D
+            ON c.upc = D.upc
+           AND c.upt = D.upt
+     WHERE c.upc IN ( SELECT DISTINCT UPC 
+                      FROM forecast  )
+   );
+
+
+DELETE cost_new
+ WHERE ns_vendor IS NULL;
+ 
+DELETE cost_new
+ WHERE current_upt IS NULL;
+
+ --RANKING ALL MATCHING CP BASED ON CP BEGIN DATE
+INSERT INTO cost_new_1
+  SELECT * ,
+         RANK() OVER ( PARTITION BY upc ORDER BY start_ DESC  ) 
+    FROM cost_new ;
+	
+ --REMOVING ENTRIES WITH OLD CP START DATE
+DELETE cost_new_1
+WHERE date_rank > 1
+
+--RANKING BASED ON CP VALUES FOR SELECTING HIGHEST CP
+INSERT INTO cost_new_2
+  SELECT * ,
+         RANK() OVER ( PARTITION BY upc ORDER BY cp DESC  ) 
+    FROM cost_new_1 ;
+ --SELECTING HIGHEST CP FOR A UPC
+DELETE cost_new_2
+ WHERE cp_rank > 1;
+ 
+ 
+ --SELECTING FINAL CP FROM PREVIOUS TABLE AND SP FROM TABLE CONTAING SP AND CALCULATION OF MARGIN
+INSERT INTO cost_final
+  ( SELECT DISTINCT upc ,
+                    cp ,
+                    current_upt ,
+                    NULL ,
+                    NULL 
+    FROM cost_new_2 
+      GROUP BY upc,cp,current_upt );
+
+MERGE INTO cost_final 
+USING (SELECT * FROM cp_sp) cp_sp 
+ON ( cost_final.upc = cp_sp.product_id )
+WHEN MATCHED THEN UPDATE SET sp = cp_sp.sp;
+UPDATE cost_final
+   SET margin = (sp - cp) / sp;
+UPDATE cost_final
+   SET margin = 0.25
+   WHERE margin < 0.25;
+
+--EXTRACTING ALL POSSIBLE TRAY TYPE FOR A UPC
+INSERT INTO current_tray
+  ( SELECT upc ,
+           EQUIPMENT_ID ,
+           EQUIPMENT_TYPE ,
+           VENDOR_NO ,
+           CATEGORY_CODE ,
+           NULL 
+    FROM equipment_data 
+     WHERE upc IN ( SELECT DISTINCT upc 
+                    FROM forecast  )
+   );
+  --PRIORITISING TRAYS FOR EACH UPCS WHERE VENDOR MATCHES
+INSERT INTO current_1
+  SELECT upc ,
+         equipment_id ,
+         RANK() OVER ( PARTITION BY upc ORDER BY equipment_id DESC  ) ,
+         NULL 
+    FROM current_tray 
+   WHERE vendor IS NOT NULL;
+
+   --PRIORITISING TRAYS FOR EACH UPCS WHERE VENDOR DON'T MATCH
+INSERT INTO current_2
+  SELECT upc ,
+         equipment_id ,
+         RANK() OVER ( PARTITION BY upc ORDER BY equipment_id DESC  ) ,
+         NULL 
+    FROM current_tray 
+   WHERE vendor IS NULL;
+   
+--SELECTING THE TRAY WITH HIGHEST PRIORITY   
+ DELETE current_1
+ WHERE rank_tray > 1;
+
+DELETE current_2
+ WHERE rank_tray > 1;
+
+ -- FINAL UPC-TRAY MAPPING
+INSERT INTO current_tray_final
+  ( SELECT DISTINCT upc ,
+                    current_tray 
+    FROM current_1  );
+	
+--UPDATING THE MAX UPT MATRIX WITH CURRENT UPT AND CURRENT TRAY TYPE
+MERGE INTO dim_upt_pivot 
+USING (SELECT * FROM /*dbo.*/current_upt) b 
+ON ( dim_upt_pivot.upc = b.upc )
+WHEN MATCHED THEN UPDATE SET current_upt = b.UPT;
+
+MERGE INTO dim_upt_pivot 
+USING (SELECT * FROM /*dbo.*/current_tray_final) b 
+ON ( dim_upt_pivot.upc = b.upc )
+WHEN MATCHED THEN UPDATE SET current_tray = b.current_tray;
+
+--CAPPING MAX UPT TO CURRENT UPT WHERE CURRENT UPT IS GREATER THAN MAX FOR CORRESPONDING TRAY TYPE
+UPDATE dim_upt_pivot
+   SET MAX_UPT_FEASIBLE = (CASE 
+                    WHEN is_srp = 'Yes' THEN (CASE 
+                                                   WHEN ( Metric_7IN_MAX_UPT * srp_total < current_upt ) THEN CEIL(current_upt / srp_total)
+                    ELSE Metric_7IN_MAX_UPT
+                       END)
+                    WHEN is_srp = 'No' THEN (CASE 
+                                                  WHEN ( Metric_7IN_MAX_UPT < current_upt ) THEN current_UPT
+                    ELSE Metric_7IN_MAX_UPT
+                       END)
+       ELSE Metric_7IN_MAX_UPT
+          END);
+    
+    
+UPDATE dim_upt_pivot
+   SET Metric_7IN_MAX_UPT = MAX_UPT_FEASIBLE;
+   
+UPDATE dim_upt_pivot
+   SET Cardboard = MAX_UPT_FEASIBLE;
+   
+   
+ 
+ UPDATE dim_upt_pivot
+   SET MAX_UPT_FEASIBLE = (CASE 
+                    WHEN ( current_tray = 'Half tray'
+                      OR current_tray = 'HALF TRAY' )
+                      AND is_srp = 'Yes' THEN (CASE 
+                                                    WHEN ( HALF_7IN_MAX_UPT * srp_total < current_upt ) THEN CEIL(current_upt / srp_total)
+                    ELSE HALF_7IN_MAX_UPT
+                       END)
+                    WHEN ( current_tray = 'Half tray'
+                      OR current_tray = 'HALF TRAY' )
+                      AND is_srp = 'No' THEN (CASE 
+                                                   WHEN ( HALF_7IN_MAX_UPT < current_upt ) THEN current_UPT
+                    ELSE hALF_7IN_MAX_UPT
+                       END)
+       ELSE HALF_7IN_MAX_UPT
+          END);
+
+    
+    UPDATE dim_upt_pivot
+   SET hALF_7IN_MAX_UPT = MAX_UPT_FEASIBLE;
+   
+   
+   --CONVERTING NUMBER OF SRP UNITS TO UNITS FOR SRPS
+UPDATE dim_upt_pivot
+   SET half_2in_max_upt = half_2in_max_upt * srp_total
+   WHERE is_srp = 'Yes';
+UPDATE dim_upt_pivot
+   SET half_5in_max_upt = half_5in_max_upt * srp_total
+   WHERE is_srp = 'Yes';
+UPDATE dim_upt_pivot
+   SET half_7in_max_upt = half_7in_max_upt * srp_total
+   WHERE is_srp = 'Yes';
+UPDATE dim_upt_pivot
+   SET metric_2in_max_upt = metric_2in_max_upt * srp_total
+   WHERE is_srp = 'Yes';
+UPDATE dim_upt_pivot
+   SET metric_5in_max_upt = metric_5in_max_upt * srp_total
+   WHERE is_srp = 'Yes';
+UPDATE dim_upt_pivot
+   SET metric_7in_max_upt = metric_7in_max_upt * srp_total
+   WHERE is_srp = 'Yes';
+UPDATE dim_upt_pivot
+   SET cardboard = cardboard * srp_total
+   WHERE is_srp = 'Yes';
+   
+   
+ --Calling function multiple times with different tray types to get the final table of all possible UPC-UPT-Tray combinations
+   begin
+   UoD_Proc_row-wise_UPT('Half_Tray_2');
+   UoD_Proc_row-wise_UPT('Half_Tray_5');
+   UoD_Proc_row-wise_UPT('Half_Tray_7');
+   UoD_Proc_row-wise_UPT('Metric_Tray_2');
+   UoD_Proc_row-wise_UPT('Metric_Tray_5');
+   UoD_Proc_row-wise_UPT('Metric_Tray_7');
+   UoD_Proc_row-wise_UPT('Cardboard');
+   UoD_Proc_row-wise_UPT('Brown_tray');
+   end;   
+   
+--COUNTING THE NUMBER OF OCCURANCE OF NON-NULL UPTs FOR A UPC
+INSERT INTO upt1
+  ( SELECT DISTINCT product_id ,
+                    upt ,
+                    COUNT(*) 
+    FROM network_sched_final_depot 
+      GROUP BY product_id,upt,rank_date
+       HAVING rank_date = 1 );
+
+DELETE upt1
+ WHERE upt IS NULL;
+ 
+ --RANKING UPT FOR ALL UPC
+INSERT INTO upt2
+  SELECT DISTINCT upc ,
+                  upt ,
+                  count_upt ,
+                  RANK() OVER ( PARTITION BY upc ORDER BY count_upt DESC  ) 
+    FROM upt1 ;
+	
+	
+--SELECTING MOST REPEATING UPT AS THE CURRENT
+INSERT INTO upt_current
+  ( SELECT upc ,
+           upt 
+    FROM upt2 
+     WHERE rank_upt = 1 );
+
+--JOINING THE UPC-UPT- TRAY COMBINATION WITH THE COSTS
+INSERT INTO product_tray
+  ( SELECT a.* ,
+           D.SP ,
+           D.unit_cost ,
+           c.UPT 
+    FROM upt_list2 a
+           LEFT JOIN current_upt c
+            ON a.upc = c.upc
+           LEFT JOIN cost_final D
+
+--JOINING TRAY SPECIFIC COST FOR DIFFERENT TRAY TYPES
+INSERT INTO product_tray_cost
+  ( SELECT a.* ,
+           b.Primary_transport_Costs ,
+           b.Tray_Hire ,
+           b.Depot_RHD_per_tray ,
+           b.Store_receiving_per_tray ,
+           b.Store_handling_per_tray ,
+           b.Tray_Lending_per_tray ,
+           (a.CP - (b.Tray_Hire / a.UPT) - (b.Primary_transport_Costs / a.UPT)) ex_works  
+    FROM product_tray a
+           LEFT JOIN cost b
+            ON a.tray_type = b.Tray_type );
+
+--JOINING PRODUCT-UPT-TRAY COMBINATION WITH CURRENT TRAY
+INSERT INTO product_desc
+  ( SELECT a.* ,
+           b.is_srp ,
+           b.SRP_total ,
+           NULL 
+    FROM product_tray_cost a
+           LEFT JOIN dim_upt_pivot b
+            ON a.upc = b.upc );
+
+DELETE product_desc
+ WHERE UPT = 1;
+
+MERGE INTO product_desc 
+USING (SELECT * FROM current_tray) current_tray 
+ON ( product_desc.upc = current_tray.upc )
+WHEN MATCHED THEN UPDATE SET Current_tray_type = current_tray.current_tray;
+UPDATE product_desc
+   SET current_tray_type = (CASE 
+                                 WHEN current_tray_type LIKE 'M%' THEN 'Metric_tray'
+                                 WHEN current_tray_type LIKE 'B%' THEN 'Brown_tray'
+                                 WHEN current_tray_type LIKE 'H%' THEN 'Half_tray'
+                                 WHEN current_tray_type LIKE 'C%' THEN 'Cardboard'
+       ELSE 'Metric_tray'
+          END);			
+		   
+            ON a.upc = D.product_id ); 
+			
+--CREATION OF COLUMN SKELETON TO FIND TRAY HEIGHT
+INSERT INTO product_desc_1
+  ( SELECT * ,
+           NULL ,
+           NULL ,
+           NULL 
+    FROM product_desc  );
+	
+--CALCULATION OF TRAY HEIGHT FOR CURRENT TRAY BASED ON MAX UPT IN EACH TRAY
+INSERT INTO xyz
+  ( SELECT DISTINCT upc ,
+                    MAX(UPT) ,
+                    tray_type ,
+                    current_upt ,
+                    current_tray_type ,
+                    NULL ,
+                    NULL ,
+                    NULL 
+    FROM product_desc_1 
+      GROUP BY upc,Tray_type,current_upt,current_tray_type );
+DELETE xyz
+
+ WHERE current_tray = 'Metric_tray'
+         AND tray NOT LIKE 'Metric%';
+DELETE xyz
+
+ WHERE current_tray = 'Half_tray'
+         AND tray NOT LIKE 'Half%';
+DELETE xyz
+
+ WHERE current_tray = 'Cardboard'
+         AND tray NOT LIKE 'Cardboard';
+DELETE xyz
+
+ WHERE current_tray = 'Brown_tray'
+         AND tray NOT LIKE 'Brown%';
+UPDATE xyz
+   SET h2 = (CASE current_tray
+                              WHEN 'Metric_tray' THEN upt
+       ELSE 0
+          END)
+   WHERE tray = 'Metric_Tray_2';
+UPDATE xyz
+   SET h5 = (CASE current_tray
+                              WHEN 'Metric_tray' THEN upt
+       ELSE 0
+          END)
+   WHERE tray = 'Metric_Tray_5';
+UPDATE xyz
+   SET h7 = (CASE current_tray
+                              WHEN 'Metric_tray' THEN upt
+       ELSE 0
+          END)
+   WHERE tray = 'Metric_Tray_7';
+UPDATE xyz
+   SET h2 = (CASE current_tray
+                              WHEN 'Half_tray' THEN upt
+       ELSE 0
+          END)
+   WHERE tray = 'Half_Tray_2';
+UPDATE xyz
+   SET h5 = (CASE current_tray
+                              WHEN 'Half_tray' THEN upt
+       ELSE 0
+          END)
+   WHERE tray = 'Half_Tray_5';
+UPDATE xyz
+   SET h7 = (CASE current_tray
+                              WHEN 'Half_tray' THEN upt
+       ELSE 0
+          END)
+   WHERE tray = 'Half_Tray_7';
+   
+   INSERT INTO xyz2
+  ( SELECT DISTINCT UPC ,
+                    Current_upt ,
+                    Current_tray ,
+                    MAX(h2) ,
+                    MAX(highfive) ,
+                    MAX(h7) 
+    FROM xyz 
+      GROUP BY upc,Current_upt,Current_tray );
+UPDATE xyz2
+   SET h2 = 0
+   WHERE h2 IS NULL;
+UPDATE xyz2
+   SET h5 = 0
+   WHERE h5 IS NULL;
+UPDATE xyz2
+   SET h7 = 0
+   WHERE h7 IS NULL;
+
+   
+   
+ UPDATE xyz2
+   SET Current_Tray = (CASE 
+                            WHEN Current_Tray = 'Metric_tray'
+                              AND Current_upt <= h2 THEN 'Metric_Tray_2'
+                            WHEN Current_Tray = 'Metric_tray'
+                              AND Current_upt > h2
+                              AND Current_upt <= h5 THEN 'Metric_Tray_5'
+                            WHEN Current_Tray = 'Metric_tray'
+                              AND Current_upt > h5 THEN 'Metric_Tray_7'
+                            WHEN Current_Tray = 'Half_tray'
+                              AND Current_upt <= h2 THEN 'Half_Tray_2'
+                            WHEN Current_Tray = 'Half_tray'
+                              AND Current_upt > h2
+                              AND Current_upt <= h5 THEN 'Half_Tray_5'
+                            WHEN Current_Tray = 'Half_tray'
+                              AND Current_upt > h5 THEN 'Half_Tray_7'
+       ELSE NULL
+          END);
+MERGE INTO product_desc_1 
+USING (SELECT * FROM xyz2) xyz2 
+ON ( product_desc_1.upc = xyz2.upc )
+WHEN MATCHED THEN UPDATE SET current_t = xyz2.current_tray;
+
+--UPDATING THE CURRENT TRAY TYPE WITH BAR HEIGHTS
+UPDATE product_desc_1
+   SET current_t = 'Cardboard'
+   WHERE Current_tray_type = 'Cardboard';
+UPDATE product_desc_1
+   SET current_t = 'Brown_tray'
+   WHERE Current_tray_type = 'Brown_tray';
+UPDATE product_desc_1
+   SET current_tray_type = current_t;
+   
+ --CALCULATION OF TRANSPORT COST FOR CARDBOARDS BASED ON PRODUCT DIMENSIONS
+INSERT INTO product_desc_new
+  ( SELECT a.UPC ,
+           a.UPT ,
+           a.tray_type ,
+           a.SP ,
+           a.CP ,
+           a.Current_UPT ,
+           a.Primary_trans ,
+           a.Tray_hire ,
+           a.Depot_RHD ,
+           a.Store_rec ,
+           a.Store_handling ,
+           /*a.*/Tray_lendinga.ex_works ,
+           a.is_srp ,
+           a.SRP_total ,
+           a.Current_tray_type ,
+           a.product_cost ,
+           b.width ,
+           b.height ,
+           b.depth ,
+           601695.216 ,
+           10.37 ,
+           a.primary_trans 
+    FROM product_desc_1 a
+           LEFT JOIN /*dbo.*/prod_dim_all b
+            ON a.upc = b.upc );
+			
+			
+UPDATE product_desc_new
+   SET primary_trans_cost = primary_trans;
+UPDATE product_desc_new
+   SET primary_trans_cost = (dolly_cost) / (601695.216 / (width * depth * height * upt))
+   WHERE tray_type = 'Cardboard';  
+   
+   --JOINING TRAY DIMENSIONS FOR CALCULATION OF NUMBER OF LAYERS OF STACKING IN TRAYS
+INSERT INTO UoD_product_description
+  ( SELECT a.* ,
+           b.tray_width ,
+           b.tray_depth ,
+           b.tray_height ,
+           NULL ,
+           NULL ,
+           NULL ,
+           NULL ,
+           NULL 
+    FROM product_desc_new a
+           LEFT JOIN dim_tray b
+            ON a.tray_type = b.tray_type );
+UPDATE UoD_product_description
+   SET fit_ww = FLOOR(tray_width / width) * FLOOR(tray_depth / depth);
+UPDATE UoD_product_description
+   SET fit_wd = FLOOR(tray_width / depth) * FLOOR(tray_depth / width);
+UPDATE UoD_product_description
+   SET fit_ww = FLOOR(54.9 / width) * FLOOR(35.4 / depth)
+   WHERE tray_type = 'Cardboard';
+UPDATE UoD_product_description
+   SET fit_wd = FLOOR(54.9 / depth) * FLOOR(35.4 / width)
+   WHERE tray_type = 'Cardboard';
+UPDATE UoD_product_description
+   SET units_layer = (CASE WHEN FIT_WW > FIT_WD THEN FIT_WW
+   ELSE FIT_WD
+   END);
+
+UPDATE UoD_product_description
+   SET layers = CEIL(upt / units_layer);
+
+ --SELECTION OF PRIMARY TRANSPORT COST FOR UPC-CURRENT UPT COMBINATION
+INSERT INTO cardboard_cost
+  ( SELECT upc ,
+           primary_trans_cost 
+    FROM UoD_product_description 
+     WHERE tray_type = current_tray_type
+             AND upt = current_upt );
+			 
+--CALCULATION OF EX WORKS COST    
+MERGE INTO UoD_product_description 
+USING (SELECT * FROM cardboard_cost) cardboard_cost 
+ON ( UoD_product_description.upc = cardboard_cost.upc )
+WHEN MATCHED THEN UPDATE SET trans = cardboard_cost.cost;
+UPDATE UoD_product_description
+   SET ex_works = CASE current_tray_type
+                                        WHEN 'Metric_Tray_7' THEN CP - (0.47 / Current_UPT) - (0.3 / Current_UPT)
+                                        WHEN 'Metric_Tray_5' THEN CP - (0.33 / Current_UPT) - (0.3 / Current_UPT)
+                                        WHEN 'Metric_Tray_2' THEN CP - (0.19 / Current_UPT) - (0.3 / Current_UPT)
+                                        WHEN 'Half_Tray_7' THEN CP - (0.24 / Current_UPT) - (0.26 / Current_UPT)
+                                        WHEN 'Half_Tray_5' THEN CP - (0.18 / Current_UPT) - (0.26 / Current_UPT)
+                                        WHEN 'Half_Tray_2' THEN CP - (0.10 / Current_UPT) - (0.26 / Current_UPT)
+                                        WHEN 'Cardboard' THEN CP - (trans / Current_UPT) - (0.15 / Current_UPT)
+                                        WHEN 'Brown_tray' THEN cp - (0.79 / Current_UPT)
+       ELSE CP - (0.47 / Current_UPT) - (0.3 / Current_UPT)
+          END;
+		  
+--CALCULATION FO PRODUCT COST
+UPDATE UoD_product_description
+   SET Product_cost = (Primary_trans_cost / UPT) + (Tray_hire / UPT) + ex_works;
+  
+
+--updating the location id in the raw forecast data to get it into the desired format--
+UPDATE forecast
+   SET location_id = SUBSTR(location_id, 2, 8);
+   
+  --applying various joins to get life, inventory model, waste constarints, dow profiles etc to creae a master dataset--
+INSERT INTO UoD_Weekly_Demand
+  ( SELECT z.* ,
+           f.life 
+    FROM ( SELECT c.* ,
+                  e.Model ,
+                  e.day_full ,
+                  e.day_part ,
+                  e.mult ,
+                  g.unit_retail ,
+                  g.unit_cost ,
+                  g.margin ,
+                  0 waste_pct  ,
+                  0.99 waste_c  ,
+                  e.on_range_dt ,
+                  I.ALLOW_EXCESS_IND ,
+                  W.dow ,
+                  W.profile ,
+                  l.depot 
+           FROM ( SELECT a.* ,
+                         b.stg ,
+                         to_date(to_char(start_dt), 'yyyymmdd')
+                  FROM forecast a
+                         LEFT JOIN store_stg_depot b
+                          ON a.location_id = SUBSTR(b.location_id, 2, 8) ) c
+                  LEFT JOIN ti_model e
+                   ON c.upc = e.PRODUCT_ID
+                  AND c.location_id = SUBSTR(e.LOCATION_ID, 2, 8)
+                  LEFT JOIN cp_sp g
+                   ON g.product_id = c.upc
+                  LEFT JOIN Store_Excess I
+                   ON C.UPC = I.PRODUCT_ID
+                  AND C.location_id = SUBSTR(I.LOCATION_ID, 2, 8)
+                  LEFT JOIN dow W
+                   ON c.upc = W.upc
+                  AND c.stg = W.stg
+                  LEFT JOIN store_stg_depot l
+                   ON c.location_id = SUBSTR(l.location_ID, 2, 4) ) z
+           LEFT JOIN productlife1 f
+            ON z.upc = f.upc
+           AND z.location_id = f.storecode
+           AND z.dow = f.fday );
+                                   
+  
+   --THIS CALL THE PROCEDURE TO TRANSFORM FORECAST FROM COLUMNS INTO ROWS AND INSERT IN DEMAND ROW
+              
+BEGIN
+   UoD_Proc_Append_Transformations();
+END;                   
+
+--updating demand row to update network schedule and store schedule flags--
+UPDATE UoD_Daily_Demand
+   SET flag4 = (CASE 
+                     WHEN flag3 IS NULL THEN flag2
+       ELSE flag3
+          END);
+                                  
+UPDATE UoD_Daily_Demand
+   SET flag2 = flag4;
+
+
+--THIS QUERY IS A QUALITY CHECK FOR CHECKING DUPLICATE ENTRIES OR INCOMPLETE QUERY 
+ select count(*) from UoD_Daily_Demand  
+ --GETTING CLOSING INVENTORY
+  
+  
+INSERT INTO stock_temp
+  ( SELECT a.product_id ,
+           CAST(SUBSTR(a.location_id, 2, 4) AS FLOAT(53)) ,
+           b.upt ,
+           a.eod ,
+           0 ,
+           to_date('2014-09-13' ,'yyyy-mm-dd')
+    FROM transaction_test a
+           LEFT JOIN upt_upc b
+            ON a.product_id = b.upc );
+            
+ --run order plan
+begin
+declare starting_dt date := to_date('2014-09-14','yyyy,mm-dd');
+UoD_Proc_Order_plan_Generation_1st_day (to_date('2014-09-14','yyyy,mm-dd'));
+END;
+BEGIN
+   UoD_Proc_Order_plan_Generation_date_add(to_date('2014-09-15','yyyy,mm-dd'),to_date('2014-09-17','yyyy,mm-dd'));
+END;
+
+
+----kpi codes----
+
+---rolling up order plan data at upc-upt-depot level---------
+
+truncate table temp_table_3_depot;
+INSERT INTO temp_table_3_depot
+  ( SELECT UPC ,
+           upt ,
+           depot ,
+           SUM(demand) demand  ,
+           SUM(on_hand) on_hand  ,
+           SUM(orders) orders  ,
+           SUM(CASE orders
+                          WHEN 0 THEN 0
+               ELSE Waste
+                  END) Waste  ,
+           SUM(Sold_Units) Sold_Units  
+    FROM UoD_daily_store_orders 
+     WHERE fdate NOT BETWEEN '2014-12-01' AND '2015-01-31'
+             AND fdate > '2014-10-18'
+             AND fdate < '2015-04-01'
+      
+    --and depot <> 'BY' 
+    GROUP BY UPC,upt,depot );
+
+	
+
+--order plan data rolled up at upc-upt level--	
+truncate table temp_table_3	
+INSERT INTO temp_table_3
+  ( SELECT UPC ,
+           upt ,
+           SUM(demand) demand  ,
+           SUM(on_hand) on_hand  ,
+           SUM(orders) orders  ,
+           SUM(Waste) Waste  ,
+           SUM(Sold_Units) Sold_Units  
+    FROM temp_table_3_depot 
+      GROUP BY UPC,upt );
+	  
+	  
+--joining rolled up data with tray attributes table to calculate cost and revenue components--	  
+truncate table temp_table_4
+	  INSERT INTO temp_table_4
+  ( SELECT a.UPC ,
+           a.upt ,
+           b.is_srp ,
+           b.tray_type ,
+           b.Current_tray_type ,
+           b.Current_UPT ,
+           b.sp ,
+           b.Product_Cost ,
+           a.demand ,
+           a.orders ,
+           a.Waste ,
+           a.Sold_Units ,
+           (a.demand - a.Sold_Units) lost_sales  ,
+           a.Sold_Units * b.Primary_trans / a.upt Primary_transport  ,
+           a.Sold_Units * b.Tray_hire / a.upt Tray_hire_cost  ,
+           a.Sold_Units * b.Depot_RHD / a.upt Depot_RHD_cost  ,
+           a.Sold_Units * b.Tray_lending / a.upt Tray_lending_cost  ,
+           a.Sold_Units * b.Store_handling / a.upt Store_handling_cost  ,
+           a.Sold_Units * b.ex_works ex_works_cost  ,
+           a.Sold_Units * b.SP Sales_Revenue  ,
+           a.Sold_Units * b.Product_cost Cost_of_sold  ,
+           a.Waste * b.Product_Cost * 0.6 Waste_Recovery  ,
+           a.Waste / a.upt * (b.Primary_trans + b.Tray_hire + b.Depot_RHD - b.Tray_lending + b.Store_handling + (b.ex_works * a.upt)) Cost_of_waste  
+    FROM temp_table_3 a
+           LEFT JOIN product_desc_1 b
+            ON a.UPC = b.UPC
+           AND a.upt = b.upt );
+		   
+
+--update queries to modify the tray types--		   
+ UPDATE temp_table_4
+   SET Current_tray_type = 'Half_Tray_7'
+   WHERE Current_tray_type = 'Half_Tray_5';
+
+--deleting records of tray type Half tray 5 in as it is not to be considered--
+   DELETE temp_table_4
+ WHERE tray_type = 'Half_Tray_5';
+
+ --deleting records of tray type Cardboard in as it is not to be considered-
+ DELETE temp_table_4
+ WHERE tray_type = 'Cardboard';
+ 
+ 
+ 
+--calculating cost and revenue components at upc-upt-depot level by joining table with data at upc-upt-depot level--
+ truncate table temp_table_4_depot
+	  INSERT INTO temp_table_4_depot
+  ( SELECT a.UPC ,
+           a.upt ,
+           a.depot ,
+           b.is_srp ,
+           b.tray_type ,
+           b.Current_tray_type ,
+           COALESCE(c.UPT, b.current_upt) ,
+           b.sp ,
+           b.Product_Cost ,
+           a.demand ,
+           a.orders ,
+           a.Waste ,
+           a.Sold_Units ,
+           (a.demand - a.Sold_Units) lost_sales  ,
+           a.Sold_Units * b.primary_trans / a.upt Primary_transport  ,
+           a.Sold_Units * b.Tray_hire / a.upt Tray_hire_cost  ,
+           a.Sold_Units * b.Depot_RHD / a.upt Depot_RHD_cost  ,
+           a.Sold_Units * b.Tray_lending / a.upt Tray_lending_cost  ,
+           a.Sold_Units * b.Store_handling / a.upt Store_handling_cost  ,
+           a.Sold_Units * b.ex_works ex_works_cost  ,
+           a.Sold_Units * b.sp Sales_Revenue  ,
+           a.Sold_Units * b.Product_cost Cost_of_sold  ,
+           a.Waste * b.Product_Cost * 0.6 Waste_Recovery  ,
+           a.Waste / a.upt * (b.primary_trans + b.Tray_hire + b.Depot_RHD - b.Tray_lending + b.Store_handling + (b.ex_works * a.upt)) Cost_of_waste  
+    FROM temp_table_3_depot a
+           LEFT JOIN upt_upc_depot c
+            ON a.UPC = c.UPC
+           AND a.depot = c.depot
+           LEFT JOIN product_desc_1 b
+            ON a.UPC = b.UPC
+           AND a.upt = b.upt );
+		   
+		   
+		   
+--update queries to modify the tray types--	
+		   UPDATE temp_table_4_depot
+   SET Current_tray_type = 'Half_Tray_7'
+   WHERE Current_tray_type = 'Half_Tray_5';
+
+--deleting records of tray type Half tray 5 in as it is not to be considered--
+   DELETE temp_table_4_depot
+ WHERE tray_type = 'Half_Tray_5';
+ 
+--deleting records of tray type Cardboard in as it is not to be considered--
+ DELETE temp_table_4_depot
+ WHERE tray_type = 'Cardboard'
+         AND current_tray_type <> 'Cardboard';
+ 
+ 
+
+--assigning priority ranks to tray types  and calculating E2E revenue etc at upc-upt-depot level--
+ truncate TABLE temp_table_5_depot;
+INSERT INTO temp_table_5_depot
+  ( SELECT UPC ,
+           upt ,
+           depot ,
+           is_srp ,
+           tray_type ,
+           Current_tray_type Current_tray_type2  ,
+           --      case Current_tray_type
+           --      when 'METRIC TRAY' then 'Metric_Tray_7'
+           --when 'MULTIPLE TRAYS' then 'Metric_Tray_7'
+           --when 'HALF TRAY' then 'Half_Tray_7'
+           --else 'Metric_Tray_7'
+           --end,
+           CASE tray_type
+                         WHEN 'Brown_Tray' THEN 8
+                         WHEN 'Half_Tray_2' THEN 7
+                         WHEN 'Half_Tray_5' THEN 6
+                         WHEN 'Half_Tray_7' THEN 5
+                         WHEN 'Metric_Tray_2' THEN 4
+                         WHEN 'Metric_Tray_5' THEN 3
+                         WHEN ( CASE Current_tray_type
+                                                      WHEN 'Metric_Tray_7' THEN 'Metric_Tray_7'
+                         ELSE 'Cardboard'
+                            END ) THEN 2
+           ELSE 1
+              END as tray_priority,
+           Current_UPT ,
+           sp ,
+           Product_Cost ,
+           demand ,
+           orders ,
+           Waste ,
+           Sold_Units ,
+           lost_sales ,
+           Primary_transport ,
+           Tray_hire_cost ,
+           Depot_RHD_cost ,
+           Tray_lending_cost ,
+           Store_handling_cost ,
+           ex_works_cost ,
+           Sales_Revenue ,
+           Cost_of_sold ,
+           Waste_Recovery ,
+           Cost_of_waste ,
+           (Primary_transport + Tray_hire_cost + Depot_RHD_cost + Store_handling_cost + ex_works_cost + cost_of_waste) E2E_Cost  ,
+           (Sales_Revenue + Tray_lending_cost) E2E_revenue  ,
+           (Sales_Revenue + (Tray_lending_cost - Tray_hire_cost) - Primary_transport - Depot_RHD_cost - Store_handling_cost - ex_works_cost - cost_of_waste) E2E_Profit  ,
+           (Sales_Revenue - Cost_of_sold) Gross_selling_margin  ,
+           (Sales_Revenue - Cost_of_sold) + Waste_Recovery Gross_profit  ,
+           (Sales_Revenue - Cost_of_sold) + Waste_Recovery - Depot_RHD_cost - Store_handling_cost Net_profit  
+    FROM temp_table_4_depot  );
+
+		 
+--assigning ranks to UPC-UPT on E2E profits--
+		 truncate TABLE temp_table_6_depot;
+INSERT INTO temp_table_6_depot
+  SELECT UPC ,
+         upt ,
+         depot ,
+         is_srp ,
+         tray_type ,
+         Current_tray_type2 ,
+         tray_prioirty ,
+         Current_UPT ,
+         sp ,
+         Product_Cost ,
+         demand ,
+         orders ,
+         Waste ,
+         Sold_Units ,
+         lost_sales ,
+         Primary_transport ,
+         Tray_hire_cost ,
+         Depot_RHD_cost ,
+         Tray_lending_cost ,
+         Store_handling_cost ,
+         ex_works_cost ,
+         Sales_Revenue ,
+         Cost_of_sold ,
+         Waste_Recovery ,
+         Cost_of_waste ,
+         E2E_Cost ,
+         E2E_revenue ,
+         E2E_Profit ,
+         Gross_selling_margin ,
+         Gross_profit ,
+         Net_profit ,
+         RANK() OVER ( PARTITION BY upc ORDER BY E2E_profit DESCtray_prioirty DESC  ) Profit_Rank  
+    FROM temp_table_5_depot ;
+
+	DELETE temp_table_6_depot
+ WHERE tray_type IS NULL;
+		 
+		 
+--collating data for only the current upt--
+		 truncate TABLE temp_table_7_current_depot;
+INSERT INTO temp_table_7_current_depot
+  ( SELECT UPC ,
+           sp ,
+           Product_Cost ,
+           demand ,
+           is_srp ,
+           depot ,
+           upt current_upt  ,
+           tray_type current_tray_type  ,
+           orders current_orders  ,
+           Waste current_Waste  ,
+           Sold_Units current_Sold_Units  ,
+           lost_sales current_lost_sales  ,
+           Primary_transport current_Primary_transport  ,
+           Tray_hire_cost current_Tray_hire_cost  ,
+           Depot_RHD_cost current_Depot_RHD_cost  ,
+           Tray_lending_cost current_Tray_lending_cost  ,
+           Store_handling_cost current_Store_handling_cost  ,
+           ex_works_cost current_ex_works_cost  ,
+           Sales_Revenue current_Sales_Revenue  ,
+           Cost_of_sold current_Cost_of_sold  ,
+           Waste_Recovery current_Waste_Recovery  ,
+           Cost_of_waste current_Cost_of_waste  ,
+           E2E_Cost current_E2E_Cost  ,
+           E2E_revenue current_E2E_revenue  ,
+           E2E_Profit current_E2E_Profit  ,
+           Gross_selling_margin current_Gross_selling_margin  ,
+           Gross_profit current_Gross_profit  ,
+           Net_profit current_Net_profit  ,
+           Profit_Rank current_Profit_Rank  
+    FROM temp_table_6_depot 
+     WHERE Current_tray_type2 = tray_type
+             AND Current_UPT = upt );
+
+			 
+			 
+--rolling up data for current upt at UPC-UPT level--
+			truncate TABLE temp_table_7_current;
+INSERT INTO temp_table_7_current
+  ( SELECT a.UPC ,
+           MAX(sp) ,
+           AVG(Product_Cost) ,
+           SUM(demand) ,
+           b.is_srp ,
+           b.current_upt ,
+           b.current_tray_type ,
+           SUM(current_orders) ,
+           SUM(current_Waste) ,
+           SUM(current_Sold_Units) ,
+           SUM(current_lost_sales) ,
+           SUM(current_Primary_transport) ,
+           SUM(current_Tray_hire_cost) ,
+           SUM(current_Depot_RHD_cost) ,
+           SUM(current_Tray_lending_cost) ,
+           SUM(current_Store_handling_cost) ,
+           SUM(current_ex_works_cost) ,
+           SUM(current_Sales_Revenue) ,
+           SUM(current_Cost_of_sold) ,
+           SUM(current_Waste_Recovery) ,
+           SUM(current_Cost_of_waste) ,
+           SUM(current_E2E_Cost) ,
+           SUM(current_E2E_revenue) ,
+           SUM(current_E2E_Profit) ,
+           SUM(current_Gross_selling_margin) ,
+           SUM(current_Gross_profit) ,
+           SUM(current_Net_profit) ,
+           99 
+    FROM temp_table_7_current_depot a
+           LEFT JOIN ( SELECT DISTINCT upc ,
+                                       current_upt ,
+                                       current_tray_type ,
+                                       is_srp 
+                       FROM product_desc_1  ) b
+            ON a.UPC = b.UPC
+      GROUP BY a.upc,b.current_upt,b.current_tray_type,b.is_srp );
+
+		 
+		 
+--assigning priority ranks to tray types  and calculating E2E revenue etc at upc-upt-depot level--
+		 truncate TABLE temp_table_5;
+INSERT INTO temp_table_5
+  ( SELECT UPC ,
+           upt ,
+           is_srp ,
+           tray_type ,
+           Current_tray_type Current_tray_type2  ,
+           --      case Current_tray_type
+           --      when 'METRIC TRAY' then 'Metric_Tray_7'
+           --when 'MULTIPLE TRAYS' then 'Metric_Tray_7'
+           --when 'HALF TRAY' then 'Half_Tray_7'
+           --else 'Metric_Tray_7'
+           --end,
+           CASE tray_type
+                         WHEN 'Brown_Tray' THEN 8
+                         WHEN 'Half_Tray_2' THEN 7
+                         WHEN 'Half_Tray_5' THEN 6
+                         WHEN 'Half_Tray_7' THEN 5
+                         WHEN 'Metric_Tray_2' THEN 4
+                         WHEN 'Metric_Tray_5' THEN 3
+                         WHEN ( CASE Current_tray_type
+                                                      WHEN 'Metric_Tray_7' THEN 'Metric_Tray_7'
+                         ELSE 'Cardboard'
+                            END ) THEN 2
+           ELSE 1
+              END as tray_priority  ,
+           Current_UPT ,
+           sp ,
+           Product_Cost ,
+           demand ,
+           orders ,
+           Waste ,
+           Sold_Units ,
+           lost_sales ,
+           Primary_transport ,
+           Tray_hire_cost ,
+           Depot_RHD_cost ,
+           Tray_lending_cost ,
+           Store_handling_cost ,
+           ex_works_cost ,
+           Sales_Revenue ,
+           Cost_of_sold ,
+           Waste_Recovery ,
+           Cost_of_waste ,
+           (Primary_transport + Tray_hire_cost + Depot_RHD_cost + Store_handling_cost + ex_works_cost + cost_of_waste) E2E_Cost  ,
+           (Sales_Revenue + Tray_lending_cost) E2E_revenue  ,
+           (Sales_Revenue + (Tray_lending_cost - Tray_hire_cost) - Primary_transport - Depot_RHD_cost - Store_handling_cost - ex_works_cost - cost_of_waste) E2E_Profit  ,
+           (Sales_Revenue - Cost_of_sold) Gross_selling_margin  ,
+           (Sales_Revenue - Cost_of_sold) + Waste_Recovery Gross_profit  ,
+           (Sales_Revenue - Cost_of_sold) + Waste_Recovery - Depot_RHD_cost - Store_handling_cost Net_profit  
+    FROM temp_table_4  );
+	
+	
+	
+--rolling up data at UPC-UPt level and ranking on E2E profit--
+	truncate TABLE UoD_Cost_Revenue_all_UPT;
+INSERT INTO UoD_Cost_Revenue_all_UPT
+  SELECT UPC ,
+         upt ,
+         is_srp ,
+         tray_type ,
+         Current_tray_type2 ,
+         tray_prioirty ,
+         Current_UPT ,
+         sp ,
+         Product_Cost ,
+         demand ,
+         orders ,
+         Waste ,
+         Sold_Units ,
+         lost_sales ,
+         Primary_transport ,
+         Tray_hire_cost ,
+         Depot_RHD_cost ,
+         Tray_lending_cost ,
+         Store_handling_cost ,
+         ex_works_cost ,
+         Sales_Revenue ,
+         Cost_of_sold ,
+         Waste_Recovery ,
+         Cost_of_waste ,
+         E2E_Cost ,
+         E2E_revenue ,
+         E2E_Profit ,
+         Gross_selling_margin ,
+         Gross_profit ,
+         Net_profit ,
+         RANK() OVER ( PARTITION BY upc ORDER BY E2E_profit DESCtray_prioirty DESC  ) Profit_Rank  
+    FROM temp_table_5 ;
+	
+DELETE UoD_Cost_Revenue_all_UPT
+ WHERE tray_type IS NULL;
+
+ 
+ 
+ --filtering out data only for most optimal UPT across all UPCs--
+ truncate TABLE temp_table_7_optimal;
+INSERT INTO temp_table_7_optimal
+  ( SELECT UPC ,
+           sp ,
+           Product_Cost ,
+           demand ,
+           is_srp ,
+           upt optimal_upt  ,
+           tray_type optimal_tray_type  ,
+           orders optimal_orders  ,
+           Waste optimal_Waste  ,
+           Sold_Units optimal_Sold_Units  ,
+           lost_sales optimal_lost_sales  ,
+           Primary_transport optimal_Primary_transport  ,
+           Tray_hire_cost optimal_Tray_hire_cost  ,
+           Depot_RHD_cost optimal_Depot_RHD_cost  ,
+           Tray_lending_cost optimal_Tray_lending_cost  ,
+           Store_handling_cost optimal_Store_handling_cost  ,
+           ex_works_cost optimal_ex_works_cost  ,
+           Sales_Revenue optimal_Sales_Revenue  ,
+           Cost_of_sold optimal_Cost_of_sold  ,
+           Waste_Recovery optimal_Waste_Recovery  ,
+           Cost_of_waste optimal_Cost_of_waste  ,
+           E2E_Cost optimal_E2E_Cost  ,
+           E2E_revenue optimal_E2E_revenue  ,
+           E2E_Profit optimal_E2E_Profit  ,
+           Gross_selling_margin optimal_Gross_selling_margin  ,
+           Gross_profit optimal_Gross_profit  ,
+           Net_profit optimal_Net_profit  ,
+           Profit_Rank optimal_Profit_Rank  
+    FROM UoD_Cost_Revenue_all_UPT 
+     WHERE Profit_Rank = 1 );
+	 
+	 
+	 
+--collating all cost and revenue components for current and optimal upt--
+	 truncate TABLE UoD_Model_recommendations;
+INSERT INTO UoD_Model_recommendations
+  ( SELECT a.UPC ,
+           a.sp ,
+           a.Product_Cost ,
+           a.demand ,
+           a.is_srp ,
+           current_upt ,
+           current_tray_type ,
+           current_orders ,
+           current_Waste ,
+           current_Sold_Units ,
+           current_lost_sales ,
+           current_Primary_transport ,
+           current_Tray_hire_cost ,
+           current_Depot_RHD_cost ,
+           current_Tray_lending_cost ,
+           current_Store_handling_cost ,
+           current_ex_works_cost ,
+           current_Sales_Revenue ,
+           current_Cost_of_sold ,
+           current_Waste_Recovery ,
+           current_Cost_of_waste ,
+           current_E2E_Cost ,
+           current_E2E_revenue ,
+           current_E2E_Profit ,
+           current_Gross_selling_margin ,
+           current_Gross_profit ,
+           current_Net_profit ,
+           current_Profit_Rank ,
+           optimal_upt ,
+           optimal_tray_type ,
+           optimal_orders ,
+           optimal_Waste ,
+           optimal_Sold_Units ,
+           optimal_lost_sales ,
+           optimal_Primary_transport ,
+           optimal_Tray_hire_cost ,
+           optimal_Depot_RHD_cost ,
+           optimal_Tray_lending_cost ,
+           optimal_Store_handling_cost ,
+           optimal_ex_works_cost ,
+           optimal_Sales_Revenue ,
+           optimal_Cost_of_sold ,
+           optimal_Waste_Recovery ,
+           optimal_Cost_of_waste ,
+           optimal_E2E_Cost ,
+           optimal_E2E_revenue ,
+           optimal_E2E_Profit ,
+           optimal_Gross_selling_margin ,
+           optimal_Gross_profit ,
+           optimal_Net_profit ,
+           optimal_Profit_Rank 
+    FROM temp_table_7_optimal a
+           LEFT JOIN temp_table_7_current b
+            ON a.UPC = b.UPC );
+
+
+			
+--update query to ad waste recovery to E2E profit calculation--
+			update UoD_Model_recommendations
+set optimal_Waste_Recovery = case optimal_Waste_Recovery when optimal_waste>current_waste then (2*optimal_waste_recovery)/3 else optimal_waste_recovery end ;
+
+UPDATE UoD_Model_recommendations
+   SET optimal_E2E_Profit = optimal_E2E_Profit + optimal_Waste_Recovery;
+UPDATE UoD_Model_recommendations
+   SET current_E2E_Profit = current_E2E_Profit + current_Waste_Recovery;
+   
+ 
+ Enter file contents here
